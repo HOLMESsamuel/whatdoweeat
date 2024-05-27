@@ -9,8 +9,14 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@auth0/auth0-vue": "^2.3.3",
+    "@fortawesome/fontawesome-svg-core": "^6.5.2",
+    "@fortawesome/free-solid-svg-icons": "^6.5.2",
+    "@fortawesome/vue-fontawesome": "^3.0.8",
+    "@highlightjs/vue-plugin": "^2.1.0",
     "@vueuse/core": "^10.9.0",
     "axios": "^1.7.2",
+    "crypto-js": "^4.2.0",
     "vue": "^3.4.21",
     "vue-router": "^4.3.2"
   },

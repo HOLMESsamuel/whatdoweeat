@@ -1,17 +1,30 @@
-<script setup lang="ts">
-import { useDark, useToggle } from '@vueuse/core';
-const isDark = useDark();
-const toggleDark = useToggle(isDark);
-</script>
-
 <template>
-  <button @click="toggleDark()">dark mode</button>
-  <router-view />
+  <div id="app" class="d-flex flex-column h-100">
+    <nav-bar />
+    <div class="container flex-grow-1">
+      <error />
+      <div class="mt-5">
+        <router-view />
+      </div>
+    </div>
+    <footer class="bg-light text-center p-3">
+      <div class="logo"></div>
+      <p>
+        Sample project provided by
+        <a href="https://auth0.com">Auth0</a>
+      </p>
+    </footer>
+  </div>
 </template>
 
-<style>
-.dark {
-  background: rgb(62, 62, 62);
-  color: white;
-}
-</style>
+<script lang="ts">
+import NavBar from "./components/NavBar.vue";
+import Error from "./components/Error.vue";
+
+export default {
+  components: {
+    NavBar,
+    Error
+  }
+};
+</script>
