@@ -5,9 +5,9 @@ A project to manage a recipe database, a meal planner and a grocery list all at 
 
 You need to have python3 node and mogoDB installed. You can either follow the below steps or if you have tmux on a linux machine you can run the start.sh script in the root folder, it will create a tmux session with 3 windows :
 
-- 0. the backend
-- 1. the frontend
-- 2. the database
+- 0 the backend
+- 1 the frontend
+- 2 the database
 
 use ctrl+b and the window number to switch. To kill all the processes use tmux kill-server or tmux kill-session -t whatdoweeat.
 
