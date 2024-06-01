@@ -21,7 +21,7 @@
               <router-link to="/" class="nav-link">Home</router-link>
             </li>
             <li class="nav-item" v-if="isAuthenticated">
-              <router-link to="/list" class="nav-link">Grocery list</router-link>
+              <router-link to="/list" class="nav-link">Grocery lists</router-link>
             </li>
           </ul>
           <ul class="navbar-nav d-none d-md-block">
