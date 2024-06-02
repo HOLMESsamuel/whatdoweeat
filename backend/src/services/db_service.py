@@ -16,7 +16,6 @@ class DBService:
 
     async def get_user_grocery_lists(self, user_id: str) -> User:
         grocery_lists = await self.grocery_list_collection.find({"user_ids": user_id}).to_list(1000)
-        grocery_lists = await self.grocery_list_collection.find({"user_ids": user_id}).to_list(1000)
         return [GroceryList(**doc) for doc in grocery_lists]
     
     async def get_grocery_list(self, list_id: PydanticObjectId) -> GroceryList:
@@ -46,9 +45,11 @@ class DBService:
         await self.grocery_list_collection.delete_one({"_id": list_id})
 
     async def add_grocery_to_list(self, list_id: PydanticObjectId, grocery: Grocery):
+        grocery_dict = grocery.dict()
+        print(grocery_dict)
         await self.grocery_list_collection.update_one(
             {"_id": list_id},
-            {"$push": {"groceries": grocery.dict()}}
+            {"$push": {"groceries": grocery_dict}}
         )
 
     async def delete_grocery_from_list(self, list_id: PydanticObjectId, grocery_name: str):

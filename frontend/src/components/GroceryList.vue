@@ -1,12 +1,12 @@
 <template>
   <div class="grocery-app">
-    <h1>Grocery List</h1>
+    <h1>{{groceryList.name}}</h1>
     <div class="input-group">
       <input v-on:keyup.enter="addItem" v-model="newItem.name" placeholder="Item Name" />
       <button @click="addItem">Add Item</button>
     </div>
     <div class="to-buy-list">
-      <button v-for="item in items" :key="item.name" @click="removeItem(item.name)">
+      <button v-for="item in groceryList.groceries" :key="item.name" @click="removeItem(item.name)">
         {{ item.name }}
       </button>
     </div>
@@ -14,11 +14,16 @@
 </template>
 
 <script lang="ts">
-import { defineComponent, ref, onMounted, computed } from 'vue';
+import { defineComponent, ref, onMounted } from 'vue';
 import axios from 'axios';
 import { WebSocketService } from '../services/websocket';
 import { useAuth0 } from '@auth0/auth0-vue';
-import CryptoJS from 'crypto-js';
+import { useRoute } from 'vue-router';
+
+interface GroceryList {
+  name: string,
+  groceries: GroceryItem[]
+}
 
 interface GroceryItem {
   name: string;
@@ -26,41 +31,40 @@ interface GroceryItem {
 
 export default defineComponent({
   setup() {
-    const { user, isAuthenticated, isLoading, loginWithRedirect, logout } = useAuth0();
-    const items = ref<GroceryItem[]>([]);
+    const route = useRoute();
+    const listId = route.params.id_list;
+    const { user, isAuthenticated, isLoading, logout } = useAuth0();
+    const groceryList = ref<GroceryList>({ name: '', groceries: []})
     const newItem = ref<GroceryItem>({ name: ''});
     const socket = ref<WebSocketService | null>(null);
 
     const fetchList = async () => {
-      const response = await axios.get('http://localhost:8000/grocery');
-      items.value = response.data;
-    };
-
-    const hashEmail = (email: string) => {
-      return CryptoJS.SHA256(email).toString(CryptoJS.enc.Hex);
+      const response = await axios.get(`http://localhost:8000/grocery-list/${listId}`);
+      groceryList.value = response.data;
+      console.log(groceryList.value);
     };
 
     const addItem = async () => {
       if (newItem.value.name !== "") {
-        await axios.post('http://localhost:8000/grocery', newItem.value);
+        const requestBody = {
+          grocery: newItem.value
+        };
+        await axios.post(`http://localhost:8000/grocery-list/${listId}/grocery`, requestBody);
         newItem.value.name = '';
         fetchList();
       }
     };
 
     const removeItem = async (name: string) => {
-      await axios.delete(`http://localhost:8000/grocery/${name}`);
+      await axios.delete(`http://localhost:8000/grocery-list/${listId}/grocery/${name}`);
       fetchList();
     };
 
     const connectSocket = () => {
-      if (user.value && user.value.email) {
-        const hashedEmail = hashEmail(user.value.email);
-        socket.value = new WebSocketService(`ws://localhost:8000/ws/${hashedEmail}`);
-        socket.value.connect((event) => {
-          fetchList();
-        });
-      }
+      socket.value = new WebSocketService(`ws://localhost:8000/ws/${listId}`);
+      socket.value.connect((event) => {
+        fetchList();
+      });
     };
 
     onMounted(() => {
@@ -71,7 +75,8 @@ export default defineComponent({
     });
 
     return {
-      items,
+      listId,
+      groceryList,
       newItem,
       addItem,
       removeItem,
