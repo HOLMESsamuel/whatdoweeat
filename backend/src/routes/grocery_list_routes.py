@@ -1,11 +1,13 @@
 from fastapi import APIRouter, Depends, Response, status
 from ..services.db_service import DBService
+from ..services.ws_service import ConnectionManager
 from ..models.grocery_list import GroceryList
 from ..models.grocery import Grocery
 from ..models.pydantic_object_id import PydanticObjectId
 from pydantic import BaseModel
 
 router = APIRouter()
+manager = ConnectionManager()
 db = DBService("mongodb://localhost:27017", "whatdoweeat")
 
 def get_db():
@@ -34,11 +36,11 @@ async def delete_grocery_list(list_id: PydanticObjectId, db: DBService = Depends
 @router.post("/grocery-list/{list_id}/grocery")
 async def add_grocery(request: AddGroceryRequest, list_id: PydanticObjectId, db: DBService = Depends(get_db)):
     await db.add_grocery_to_list(list_id, request.grocery)
-    #await manager.broadcast(f"Grocery item added: {request.grocery.name}")
+    await manager.broadcast(f"Grocery item added: {request.grocery.name}", str(list_id))
     return {"message": "Grocery item added"}
 
 @router.delete("/grocery-list/{list_id}/grocery/{name}")
 async def delete_grocery(list_id: PydanticObjectId, name: str, db: DBService = Depends(get_db)):
     await db.delete_grocery_from_list(list_id, name)
-    #await manager.broadcast(f"Grocery item deleted: {name}")
+    await manager.broadcast(f"Grocery item deleted: {name}", str(list_id))
     return {"message": "Grocery item deleted"}

@@ -32,9 +32,9 @@ app.include_router(user_router)
 
 @app.websocket("/ws/{code}")
 async def websocket_endpoint(websocket: WebSocket, code: str):
-    await manager.connect(websocket)
+    await manager.connect(websocket, code)
     try:
         while True:
             data = await websocket.receive_text()
     except WebSocketDisconnect:
-        manager.disconnect(websocket)
+        manager.disconnect(websocket, code)

@@ -3,17 +3,17 @@
       <div class="input-group">
         <input v-on:keyup.enter="addItem" v-model="newItem.name" placeholder="Item Name" />
         <button @click="addItem">Add Item</button>
+        <input v-on:keyup.enter="joinList" v-model="newItem._id" placeholder="list id" />
+        <button @click="joinList">Join a list</button>
       </div>
-      <div class="to-buy-list">
-        <button v-for="item in items" :key="item.name">
-            <router-link :to="`/list/${item._id}`" class="nav-link">{{ item.name }}</router-link>
-        </button>
-      </div>
+      <button v-for="item in items" :key="item.name">
+          <router-link :to="`/list/${item._id}`" class="nav-link">{{ item.name }}</router-link>
+      </button>
     </div> 
   </template>
   
   <script lang="ts">
-  import { defineComponent, ref, onMounted, computed } from 'vue';
+  import { defineComponent, ref, onMounted } from 'vue';
   import axios from 'axios';
   import { useAuth0 } from '@auth0/auth0-vue';
   import CryptoJS from 'crypto-js';
@@ -30,7 +30,7 @@
         return CryptoJS.SHA256(email).toString(CryptoJS.enc.Hex);
       };
 
-      const { user, isAuthenticated, isLoading, loginWithRedirect, logout } = useAuth0();
+      const { user, isAuthenticated, isLoading, logout } = useAuth0();
       const hashedEmail = hashEmail(user.value.email);
       const items = ref<GroceryList[]>([]);
       const newItem = ref<GroceryList>({ id_list: '', name: ''});
@@ -40,7 +40,12 @@
         items.value = response.data;
       };
   
-      
+      const joinList = async () => {
+        if (newItem.value._id !== "") {
+          await axios.patch(`http://localhost:8000/grocery-list/${newItem.value._id}/user/${hashedEmail}`);
+          fetchList();
+        }
+      }
   
       const addItem = async () => {
         if (newItem.value.name !== "") {
@@ -68,6 +73,7 @@
         addItem,
         removeItem,
         logout,
+        joinList,
         user,
         isAuthenticated,
         isLoading

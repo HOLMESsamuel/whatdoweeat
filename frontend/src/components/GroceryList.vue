@@ -51,13 +51,11 @@ export default defineComponent({
         };
         await axios.post(`http://localhost:8000/grocery-list/${listId}/grocery`, requestBody);
         newItem.value.name = '';
-        fetchList();
       }
     };
 
     const removeItem = async (name: string) => {
       await axios.delete(`http://localhost:8000/grocery-list/${listId}/grocery/${name}`);
-      fetchList();
     };
 
     const connectSocket = () => {
