@@ -60,7 +60,7 @@ export default defineComponent({
 
     const connectSocket = () => {
       socket.value = new WebSocketService(`ws://localhost:8000/ws/${listId}`);
-      socket.value.connect((event) => {
+      socket.value.connect((_event) => {
         fetchList();
       });
     };

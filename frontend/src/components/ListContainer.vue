@@ -31,9 +31,9 @@
       };
 
       const { user, isAuthenticated, isLoading, logout } = useAuth0();
-      const hashedEmail = hashEmail(user.value.email);
+      let hashedEmail = "";
       const items = ref<GroceryList[]>([]);
-      const newItem = ref<GroceryList>({ id_list: '', name: ''});
+      const newItem = ref<GroceryList>({ _id: '', name: ''});
   
       const fetchList = async () => {
         const response = await axios.get(`http://localhost:8000/user/${hashedEmail}/grocery-list`);
@@ -63,7 +63,11 @@
   
       onMounted(() => {
         if (!isLoading.value && isAuthenticated.value) {
+          if(user && user.value && user.value.email) {
+            hashedEmail = hashEmail(user.value.email);
+          }
           fetchList();
+          
         }
       });
   

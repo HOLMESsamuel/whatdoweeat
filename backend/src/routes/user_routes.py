@@ -1,3 +1,4 @@
+import os
 from fastapi import APIRouter, Depends
 from ..services.db_service import DBService
 from ..models.grocery_list import GroceryList
@@ -5,7 +6,8 @@ from ..models.pydantic_object_id import PydanticObjectId
 from pydantic import BaseModel
 
 router = APIRouter()
-db = DBService("mongodb://localhost:27017", "whatdoweeat")
+mongo_uri = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
+db = DBService(mongo_uri, "whatdoweeat")
 
 def get_db():
     return db

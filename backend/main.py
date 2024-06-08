@@ -1,3 +1,4 @@
+import os
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from src.models.grocery import Grocery
@@ -7,7 +8,8 @@ from src.routes.grocery_list_routes import router as grocery_list_router
 from src.routes.user_routes import router as user_router
 
 app = FastAPI()
-db = DBService("mongodb://localhost:27017", "whatdoweeat")
+mongo_uri = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
+db = DBService(mongo_uri, "whatdoweeat")
 manager = ConnectionManager()
 
 def get_db():

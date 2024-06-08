@@ -41,14 +41,14 @@
                 data-toggle="dropdown"
               >
                 <img
-                  :src="user.picture"
+                  :src="user?.picture"
                   alt="User's profile picture"
                   class="nav-user-profile rounded-circle"
                   width="50"
                 />
               </a>
               <div class="dropdown-menu dropdown-menu-right">
-                <div class="dropdown-header">{{ user.name }}</div>
+                <div class="dropdown-header">{{ user?.name }}</div>
                 <router-link to="/profile" class="dropdown-item dropdown-profile">
                   <font-awesome-icon class="mr-3" icon="user" />Profile
                 </router-link>
@@ -71,12 +71,12 @@
             <li class="nav-item">
               <span class="user-info">
                 <img
-                  :src="user.picture"
+                  :src="user?.picture"
                   alt="User's profile picture"
                   class="nav-user-profile d-inline-block rounded-circle mr-3"
                   width="50"
                 />
-                <h6 class="d-inline-block">{{ user.name }}</h6>
+                <h6 class="d-inline-block">{{ user?.name }}</h6>
               </span>
             </li>
             <li>

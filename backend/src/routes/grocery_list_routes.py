@@ -1,3 +1,4 @@
+import os
 from fastapi import APIRouter, Depends, Response, status
 from ..services.db_service import DBService
 from ..services.ws_service import ConnectionManager
@@ -8,7 +9,8 @@ from pydantic import BaseModel
 
 router = APIRouter()
 manager = ConnectionManager()
-db = DBService("mongodb://localhost:27017", "whatdoweeat")
+mongo_uri = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
+db = DBService(mongo_uri, "whatdoweeat")
 
 def get_db():
     return db
