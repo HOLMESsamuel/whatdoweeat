@@ -10,6 +10,7 @@ import hljs from 'highlight.js/lib/core';
 import json from 'highlight.js/lib/languages/json';
 import hljsVuePlugin from "@highlightjs/vue-plugin";
 import "highlight.js/styles/github.css";
+import './style.css';
 
 hljs.registerLanguage('json', json);
 

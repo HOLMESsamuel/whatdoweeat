@@ -1,0 +1,20 @@
+html.dark{
+    background-color: #121212;
+    color: #e0e0e0;
+  }
+
+.dark{
+    background-color: #121212;
+    color: #e0e0e0;
+  }
+
+.dark > nav-item{
+  background-color: #121212;
+  color: #e0e0e0;
+}
+  
+
+html.dark .btn-primary {
+background-color: #1f1f1f;
+border-color: #333;
+}

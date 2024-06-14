@@ -1,6 +1,6 @@
 <template>
   <div class="nav-container mb-3">
-    <nav class="navbar navbar-expand-md navbar-light bg-light">
+    <nav class="navbar navbar-expand-md" :class="isDark ? 'dark' : 'navbar-light bg-light'">
       <div class="container">
         <div class="navbar-brand logo"></div>
         <button
@@ -21,8 +21,23 @@
               <router-link to="/" class="nav-link">Home</router-link>
             </li>
             <li class="nav-item" v-if="isAuthenticated">
-              <router-link to="/list" class="nav-link">Grocery lists</router-link>
+              <router-link to="/lists" class="nav-link">Grocery lists</router-link>
             </li>
+            <li class="nav-item" v-if="isAuthenticated">
+              <router-link to="/receipes" class="nav-link">Receipes</router-link>
+            </li>
+            <li class="nav-item" v-if="isAuthenticated">
+              <router-link to="/planner" class="nav-link">Meal planner</router-link>
+            </li>
+          </ul>
+          <ul class="navbar-nav d-none d-md-block">
+              <button
+                class="darkModeButton"
+                @click.prevent="toggleDark()"
+              >
+              <img v-if="isDark" class="moon" src = "../assets/moon.svg" alt="dark"/>
+              <img v-if="!isDark" class="sun" src = "../assets/sun.svg" alt="light"/>
+            </button>
           </ul>
           <ul class="navbar-nav d-none d-md-block">
             <li v-if="!isAuthenticated && !isLoading" class="nav-item">
@@ -61,6 +76,13 @@
 
           <ul class="navbar-nav d-md-none" v-if="!isAuthenticated && !isLoading">
             <button id="qsLoginBtn" class="btn btn-primary btn-block" @click="login">Log in</button>
+            <button
+                class="darkModeButton"
+                @click.prevent="toggleDark()"
+              >
+              <img v-if="isDark" src = "../assets/moon.svg" alt="dark"/>
+              <img v-if="!isDark" src = "../assets/sun.svg" alt="light"/>
+            </button>
           </ul>
 
           <ul
@@ -97,16 +119,21 @@
 
 <script lang="ts">
 import { useAuth0 } from '@auth0/auth0-vue';
+import { useDark, useToggle } from '@vueuse/core'
 
 export default {
   name: "NavBar",
   setup() {
     const auth0 = useAuth0();
+    const isDark = useDark()
+    const toggleDark = useToggle(isDark)
     
     return {
       isAuthenticated: auth0.isAuthenticated,
       isLoading: auth0.isLoading,
       user: auth0.user,
+      isDark,
+      toggleDark,
       login() {
         auth0.loginWithRedirect();
       },
@@ -126,5 +153,28 @@ export default {
 #mobileAuthNavBar {
   min-height: 125px;
   justify-content: space-between;
+}
+
+.darkModeButton {
+  background: none;
+  border: none;
+  margin-left: 10px;
+  margin-right: 10px;
+}
+
+.darkModeButton:focus {
+  outline: none;
+}
+
+.moon {
+  filter: invert(77%) sepia(83%) saturate(1%) hue-rotate(334deg) brightness(98%) contrast(96%);
+}
+
+.nav-item.dark {
+  color: white;
+}
+
+.navbar-toggler {
+  background-color: white;
 }
 </style>

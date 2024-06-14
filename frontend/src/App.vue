@@ -1,5 +1,5 @@
 <template>
-  <div id="app" class="flex flex-col min-h-screen">
+  <div id="app" class="flex flex-col min-h-screen" :class="{ 'dark': isDark }">
     <nav-bar />
     <div class="container flex-grow">
       <error />
@@ -7,7 +7,7 @@
         <router-view />
       </div>
     </div>
-    <footer class="bg-light text-center p-3">
+    <footer class="text-center p-3" :class="{ 'dark': isDark }">
       <div class="logo"></div>
       <p>
         What do we eat ?
@@ -19,11 +19,20 @@
 <script lang="ts">
 import NavBar from "./components/NavBar.vue";
 import Error from "./components/Error.vue";
+import { useDark } from '@vueuse/core';
 
 export default {
   components: {
     NavBar,
     Error
+  },
+
+  setup () {
+    const isDark = useDark();
+
+    return {
+      isDark
+    }
   }
 };
 </script>
@@ -35,5 +44,10 @@ export default {
 }
 .flex-grow {
   flex-grow: 1;
+}
+
+.dark{
+  background-color: #121212;
+  color: #e0e0e0;
 }
 </style>
