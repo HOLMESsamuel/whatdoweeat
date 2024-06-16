@@ -2,7 +2,7 @@ version: '3.9'
 
 services:
   mongodb:
-    build: ./db
+    image: mongo:latest
     ports:
       - "27017:27017"
     volumes:
@@ -20,20 +20,17 @@ services:
       - MONGO_URI=mongodb://mongodb:27017/whatdoweeat
     networks:
       - backend-network
-      - frontend-network
 
   frontend:
     build: ./frontend
     ports:
-      - "5173:80"
+      - "80:80"
+      - "443:443"
     depends_on:
       - backend
     networks:
-      - frontend-network
+      - backend-network
 
 networks:
   backend-network:
     driver: bridge
-  frontend-network:
-    driver: bridge
-

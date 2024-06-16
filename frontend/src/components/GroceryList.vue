@@ -43,7 +43,6 @@ export default defineComponent({
     const fetchList = async () => {
       const response = await axios.get(`${backendUrl}/grocery-list/${listId}`);
       groceryList.value = response.data;
-      console.log(groceryList.value);
     };
 
     const addItem = async () => {
