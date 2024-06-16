@@ -37,11 +37,12 @@ export default defineComponent({
     const groceryList = ref<GroceryList>({ name: '', groceries: []})
     const newItem = ref<GroceryItem>({ name: ''});
     const socket = ref<WebSocketService | null>(null);
+    const backendUrl = import.meta.env.VITE_BACKEND_BASE_URL;
+    const backendWsUrl = import.meta.env.VITE_WS_BACKEND_BASE_URL;
 
     const fetchList = async () => {
-      const response = await axios.get(`http://localhost:8000/grocery-list/${listId}`);
+      const response = await axios.get(`${backendUrl}/grocery-list/${listId}`);
       groceryList.value = response.data;
-      console.log(groceryList.value);
     };
 
     const addItem = async () => {
@@ -49,17 +50,17 @@ export default defineComponent({
         const requestBody = {
           grocery: newItem.value
         };
-        await axios.post(`http://localhost:8000/grocery-list/${listId}/grocery`, requestBody);
+        await axios.post(`${backendUrl}/grocery-list/${listId}/grocery`, requestBody);
         newItem.value.name = '';
       }
     };
 
     const removeItem = async (name: string) => {
-      await axios.delete(`http://localhost:8000/grocery-list/${listId}/grocery/${name}`);
+      await axios.delete(`${backendUrl}/grocery-list/${listId}/grocery/${name}`);
     };
 
     const connectSocket = () => {
-      socket.value = new WebSocketService(`ws://localhost:8000/ws/${listId}`);
+      socket.value = new WebSocketService(`${backendWsUrl}/${listId}`);
       socket.value.connect((_event) => {
         fetchList();
       });

@@ -20,8 +20,8 @@ COPY --from=build-stage /app/dist /usr/share/nginx/html
 #copy the custom default conf of nginx
 COPY default.conf /etc/nginx/conf.d
 
-# Expose port 5173
-EXPOSE 5173
+# Expose port 80
+EXPOSE 80
 
 CMD ["nginx", "-g", "daemon off;"]
 

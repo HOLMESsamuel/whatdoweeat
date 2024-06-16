@@ -21,13 +21,13 @@ export function createRouter(app: App): Router {
         beforeEnter: createAuthGuard(app)
       },
       {
-        path: "/list",
+        path: "/lists",
         name: "lists",
         component: ListContainer,
         beforeEnter: createAuthGuard(app)
       },
       {
-        path: "/list/:id_list",
+        path: "/lists/:id_list",
         name: "grocery list",
         component: GroceryList,
         beforeEnter: createAuthGuard(app)
