@@ -27,10 +27,10 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
 
-    - name: Run Backend Tests with coverage
+    - name: Run Backend tests
       run: |
         cd backend
-        pytest --cov=src tests/
+        pytest tests/
 
   build-push-backend-image:
     needs: test-backend
