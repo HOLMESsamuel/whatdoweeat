@@ -8,7 +8,32 @@ on:
 
 jobs:
 
+  test-backend:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v3
+      with:
+        python-version: '3.9'
+
+    - name: Install Backend Dependencies
+      run: |
+        cd backend
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Run Backend Tests with coverage
+      run: |
+        cd backend
+        pytest --cov=src tests/
+
   build-push-backend-image:
+    needs: test-backend
     runs-on: ubuntu-latest
     steps:
     - name: Checkout Repository

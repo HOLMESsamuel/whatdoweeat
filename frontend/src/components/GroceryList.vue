@@ -47,6 +47,7 @@ export default defineComponent({
 
     const addItem = async () => {
       if (newItem.value.name !== "") {
+        newItem.value.name.trim();
         const requestBody = {
           grocery: newItem.value
         };
