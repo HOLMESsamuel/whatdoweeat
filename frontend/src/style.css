@@ -1,20 +1,37 @@
-html.dark{
-    background-color: #121212;
-    color: #e0e0e0;
-  }
-
-.dark{
-    background-color: #121212;
-    color: #e0e0e0;
-  }
-
-.dark > nav-item{
+html.dark {
   background-color: #121212;
   color: #e0e0e0;
 }
-  
+
+.dark {
+  background-color: #121212;
+  color: #e0e0e0;
+}
+
+.dark > .nav-item {
+  background-color: #121212;
+  color: #e0e0e0;
+}
+
+.dark a {
+  color: #e0e0e0;
+}
+
+.dark a:hover,
+.dark a:active {
+  color: #a7a7a7;
+}
 
 html.dark .btn-primary {
-background-color: #1f1f1f;
-border-color: #333;
+  background-color: #1f1f1f;
+  border-color: #333;
+}
+
+.dark .navbar-toggler {
+  background-color: #686868;
+  border-color: #525252;
+}
+
+.dark .navbar-toggler-icon {
+  background-image: url("data:image/svg+xml;charset=utf8,%3Csvg viewBox='0 0 30 30' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath stroke='rgba%288, 8, 8, 0.5%29' stroke-width='2' linecap='round' linejoin='round' d='M4 7h22M4 15h22M4 23h22'/%3E%3C/svg%3E"); /* Adjust the icon color for visibility */
 }
