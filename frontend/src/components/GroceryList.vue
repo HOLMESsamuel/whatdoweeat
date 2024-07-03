@@ -2,13 +2,25 @@
   <div class="grocery-app">
     <h1>{{groceryList.name}}</h1>
     <div class="input-group">
-      <input v-on:keyup.enter="addItem" v-model="newItem.name" placeholder="Item Name" />
+      <input v-on:keyup.enter="addItem" v-model="newItem.name" placeholder="Item Name" required />
+      <input v-on:keyup.enter="addItem" v-model="newItem.quantity" placeholder="Quantity" />
+    </div>
+    <div class="input-group-description">
+      <textarea v-model="newItem.description" placeholder="Description"></textarea>
+    </div>
+    <div class="input-group-button">
       <button @click="addItem">Add Item</button>
     </div>
     <div class="to-buy-list">
-      <button v-for="item in groceryList.groceries" :key="item.name" @click="removeItem(item.name)">
-        {{ item.name }}
-      </button>
+      <div v-for="item in groceryList.groceries" :key="item.name" class="item-card">
+        <button @click="removeItem(item.name)">
+          <div>
+            {{ item.name }} <span v-if="item.quantity">({{ item.quantity }})</span>
+            <br>
+            <small v-if="item.description">{{ item.description }}</small>
+          </div>
+        </button>
+      </div>
     </div>
   </div> 
 </template>
@@ -27,6 +39,8 @@ interface GroceryList {
 
 interface GroceryItem {
   name: string;
+  quantity?: string;
+  description?: string;
 }
 
 export default defineComponent({
@@ -34,8 +48,8 @@ export default defineComponent({
     const route = useRoute();
     const listId = route.params.id_list;
     const { user, isAuthenticated, isLoading, logout } = useAuth0();
-    const groceryList = ref<GroceryList>({ name: '', groceries: []})
-    const newItem = ref<GroceryItem>({ name: ''});
+    const groceryList = ref<GroceryList>({ name: '', groceries: []});
+    const newItem = ref<GroceryItem>({ name: '', quantity: '', description: ''});
     const socket = ref<WebSocketService | null>(null);
     const backendUrl = import.meta.env.VITE_BACKEND_BASE_URL;
     const backendWsUrl = import.meta.env.VITE_WS_BACKEND_BASE_URL;
@@ -47,12 +61,11 @@ export default defineComponent({
 
     const addItem = async () => {
       if (newItem.value.name !== "") {
-        newItem.value.name.trim();
-        const requestBody = {
-          grocery: newItem.value
-        };
-        await axios.post(`${backendUrl}/grocery-list/${listId}/grocery`, requestBody);
+        newItem.value.name = newItem.value.name.trim();
+        await axios.post(`${backendUrl}/grocery-list/${listId}/grocery`, newItem.value);
         newItem.value.name = '';
+        newItem.value.quantity = '';
+        newItem.value.description = '';
       }
     };
 
@@ -109,10 +122,10 @@ h1 {
 .input-group {
   display: flex;
   justify-content: space-between;
-  margin-bottom: 20px;
+  margin-bottom: 10px;
 }
 
-input {
+.input-group input {
   flex: 1;
   padding: 10px;
   margin-right: 10px;
@@ -120,6 +133,30 @@ input {
   border-radius: 4px;
   background-color: #1e1e1e;
   color: #fff;
+}
+
+.input-group input:last-child {
+  margin-right: 0;
+  flex: 0.3; /* Ensuring the quantity field is narrower */
+}
+
+.input-group-description {
+  margin-bottom: 20px;
+}
+
+.input-group-description textarea {
+  width: calc(100%);
+  padding: 10px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background-color: #1e1e1e;
+  color: #fff;
+  resize: none;
+}
+
+.input-group-button {
+  text-align: center;
+  margin-bottom: 20px;
 }
 
 button {
@@ -141,15 +178,37 @@ button:hover {
   gap: 10px;
 }
 
-.to-buy-list button {
+.item-card button {
   background-color: #da3203;
   padding: 10px;
   border: none;
   border-radius: 4px;
   cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
 }
 
-.to-buy-list button:hover {
+.item-card button:hover {
   background-color: #6f1800;
+}
+
+@media (max-width: 800px) {
+  .input-group {
+    flex-direction: column;
+  }
+
+  .input-group input {
+    margin-right: 0;
+    margin-bottom: 10px;
+  }
+
+  .input-group input:last-child {
+    flex: 1;
+  }
+
+  .input-group-description textarea {
+    width: calc(100%); /* Adjusting for padding */
+  }
 }
 </style>
