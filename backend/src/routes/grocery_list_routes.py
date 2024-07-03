@@ -15,9 +15,6 @@ db = DBService(mongo_uri, "whatdoweeat")
 def get_db():
     return db
 
-class AddGroceryRequest(BaseModel):
-    grocery: Grocery
-
 @router.patch("/grocery-list/{list_id}/user/{user_id}")
 async def add_user_to_grocery_list(list_id: PydanticObjectId, user_id: str, db: DBService = Depends(get_db)):
     await db.add_user_to_grocery_list(list_id, user_id)
@@ -36,9 +33,9 @@ async def delete_grocery_list(list_id: PydanticObjectId, db: DBService = Depends
     return grocery_list
 
 @router.post("/grocery-list/{list_id}/grocery")
-async def add_grocery(request: AddGroceryRequest, list_id: PydanticObjectId, db: DBService = Depends(get_db)):
-    await db.add_grocery_to_list(list_id, request.grocery)
-    await manager.broadcast(f"Grocery item added: {request.grocery.name}", str(list_id))
+async def add_grocery(request: Grocery, list_id: PydanticObjectId, db: DBService = Depends(get_db)):
+    await db.add_grocery_to_list(list_id, request)
+    await manager.broadcast(f"Grocery item added: {request.name}", str(list_id))
     return {"message": "Grocery item added"}
 
 @router.delete("/grocery-list/{list_id}/grocery/{name}")

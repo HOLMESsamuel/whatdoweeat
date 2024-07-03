@@ -2,6 +2,8 @@ from pydantic import BaseModel
 
 class Grocery(BaseModel):
     name : str = ""
+    quantity : str = ""
+    description : str = ""
 
     def clean_name(self):
         self.name = self.name.strip()

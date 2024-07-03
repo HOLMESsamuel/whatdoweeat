@@ -6,6 +6,7 @@ from src.services.db_service import DBService
 from src.services.ws_service import ConnectionManager
 from src.routes.grocery_list_routes import router as grocery_list_router
 from src.routes.user_routes import router as user_router
+from src.routes.recipe_routes import router as recipe_router
 
 app = FastAPI()
 mongo_uri = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
@@ -25,12 +26,7 @@ app.add_middleware(
 
 app.include_router(grocery_list_router)
 app.include_router(user_router)
-
-#@app.delete("/grocery/{name}")
-#async def delete_grocery(name: str, db: DBService = Depends(get_db)):
-#    await db.delete_grocery(name)
-#    await manager.broadcast(f"Grocery item deleted: {name}")
-#    return {"message": "Grocery item deleted"}
+app.include_router(recipe_router)
 
 @app.websocket("/ws/{code}")
 async def websocket_endpoint(websocket: WebSocket, code: str):

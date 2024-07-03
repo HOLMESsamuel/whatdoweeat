@@ -14,9 +14,9 @@
 
       <div class="col-md-5 mb-4">
         <h6 class="mb-3">
-          Create a receipe book
+          Create a recipe book
         </h6>
-        <p>You will be able to store all your receipes, then search for them by season, price, calories, ingredients, ... </p>
+        <p>You will be able to store all your recipes, then search for them by season, price, calories, ingredients, ... </p>
       </div>
     </div>
 
@@ -25,7 +25,7 @@
         <h6 class="mb-3">
           Organize your meals
         </h6>
-        <p>A calendar meal planner will allow you to place your receipes on it to always know what you want to eat.</p>
+        <p>A calendar meal planner will allow you to place your recipes on it to always know what you want to eat.</p>
       </div>
 
       <div class="col-md"></div>
@@ -34,7 +34,7 @@
         <h6 class="mb-3">
           Auto feed your grocery list
         </h6>
-        <p>Once you have added a receipe to your calendar the grocery list will be updated automatically, all you have to do is going to the store.</p>
+        <p>Once you have added a recipe to your calendar the grocery list will be updated automatically, all you have to do is going to the store.</p>
       </div>
     </div>
   </div>
