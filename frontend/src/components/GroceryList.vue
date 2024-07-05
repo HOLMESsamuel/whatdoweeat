@@ -13,7 +13,7 @@
     </div>
     <div class="to-buy-list">
       <div v-for="item in groceryList.groceries" :key="item.name" class="item-card">
-        <button @click="removeItem(item.name)">
+        <button @click="removeItem(item.id)">
           <div>
             {{ item.name }} <span v-if="item.quantity">({{ item.quantity }})</span>
             <br>
@@ -38,6 +38,7 @@ interface GroceryList {
 }
 
 interface GroceryItem {
+  id: string;
   name: string;
   quantity?: string;
   description?: string;
@@ -49,7 +50,7 @@ export default defineComponent({
     const listId = route.params.id_list;
     const { user, isAuthenticated, isLoading, logout } = useAuth0();
     const groceryList = ref<GroceryList>({ name: '', groceries: []});
-    const newItem = ref<GroceryItem>({ name: '', quantity: '', description: ''});
+    const newItem = ref<GroceryItem>({ id: '', name: '', quantity: '', description: ''});
     const socket = ref<WebSocketService | null>(null);
     const backendUrl = import.meta.env.VITE_BACKEND_BASE_URL;
     const backendWsUrl = import.meta.env.VITE_WS_BACKEND_BASE_URL;
@@ -69,8 +70,8 @@ export default defineComponent({
       }
     };
 
-    const removeItem = async (name: string) => {
-      await axios.delete(`${backendUrl}/grocery-list/${listId}/grocery/${name}`);
+    const removeItem = async (id: string) => {
+      await axios.delete(`${backendUrl}/grocery-list/${listId}/grocery/${id}`);
     };
 
     const connectSocket = () => {

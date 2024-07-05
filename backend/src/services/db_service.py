@@ -68,17 +68,16 @@ class DBService:
 
     async def add_grocery_to_list(self, list_id: PydanticObjectId, grocery: Grocery):
         grocery.clean_name()
-        print(grocery)
+        grocery.generate_uuid()
         grocery_dict = grocery.dict()
-        print(grocery_dict)
         await self.grocery_list_collection.update_one(
             {"_id": list_id},
             {"$push": {"groceries": grocery_dict}}
         )
 
-    async def delete_grocery_from_list(self, list_id: PydanticObjectId, grocery_name: str):
+    async def delete_grocery_from_list(self, list_id: PydanticObjectId, grocery_id: str):
         await self.grocery_list_collection.update_one(
             {"_id": list_id},
-            {"$pull": {"groceries": {"name": grocery_name}}}
+            {"$pull": {"groceries": {"id": grocery_id}}}
         )
 
