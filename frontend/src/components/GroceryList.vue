@@ -1,16 +1,18 @@
 <template>
   <div class="grocery-app">
     <h1>{{groceryList.name}}</h1>
-    <div class="input-group">
-      <input v-on:keyup.enter="addItem" v-model="newItem.name" placeholder="Item Name" required />
-      <input v-on:keyup.enter="addItem" v-model="newItem.quantity" placeholder="Quantity" />
-    </div>
-    <div class="input-group-description">
-      <textarea v-model="newItem.description" placeholder="Description"></textarea>
-    </div>
-    <div class="input-group-button">
-      <button @click="addItem">Add Item</button>
-    </div>
+    <form @submit.prevent="addItem">
+      <div class="input-group">
+        <input v-model="newItem.name" placeholder="Item Name" required />
+        <input v-model="newItem.quantity" placeholder="Quantity" />
+      </div>
+      <div class="input-group-description">
+        <textarea v-model="newItem.description" placeholder="Description"></textarea>
+      </div>
+      <div class="input-group-button">
+        <button type="submit">Add Item</button>
+      </div>
+    </form>
     <div class="to-buy-list">
       <div v-for="item in groceryList.groceries" :key="item.name" class="item-card">
         <button @click="removeItem(item.id)">
@@ -71,7 +73,15 @@ export default defineComponent({
     };
 
     const removeItem = async (id: string) => {
-      await axios.delete(`${backendUrl}/grocery-list/${listId}/grocery/${id}`);
+      const index = groceryList.value.groceries.findIndex(item => item.id === id);
+        if (index !== -1) {
+          groceryList.value.groceries.splice(index, 1);
+        }
+      try {
+        await axios.delete(`${backendUrl}/grocery-list/${listId}/grocery/${id}`);
+      } catch (error) {
+        console.error('Error removing item:', error);
+      }
     };
 
     const connectSocket = () => {
