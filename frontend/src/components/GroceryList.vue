@@ -1,19 +1,21 @@
 <template>
   <div class="grocery-app">
     <h1>{{groceryList.name}}</h1>
-    <div class="input-group">
-      <input v-on:keyup.enter="addItem" v-model="newItem.name" placeholder="Item Name" required />
-      <input v-on:keyup.enter="addItem" v-model="newItem.quantity" placeholder="Quantity" />
-    </div>
-    <div class="input-group-description">
-      <textarea v-model="newItem.description" placeholder="Description"></textarea>
-    </div>
-    <div class="input-group-button">
-      <button @click="addItem">Add Item</button>
-    </div>
+    <form @submit.prevent="addItem">
+      <div class="input-group">
+        <input v-model="newItem.name" placeholder="Item Name" required />
+        <input v-model="newItem.quantity" placeholder="Quantity" />
+      </div>
+      <div class="input-group-description">
+        <textarea v-model="newItem.description" placeholder="Description"></textarea>
+      </div>
+      <div class="input-group-button">
+        <button type="submit">Add Item</button>
+      </div>
+    </form>
     <div class="to-buy-list">
       <div v-for="item in groceryList.groceries" :key="item.name" class="item-card">
-        <button @click="removeItem(item.name)">
+        <button @click="removeItem(item.id)">
           <div>
             {{ item.name }} <span v-if="item.quantity">({{ item.quantity }})</span>
             <br>
@@ -38,6 +40,7 @@ interface GroceryList {
 }
 
 interface GroceryItem {
+  id: string;
   name: string;
   quantity?: string;
   description?: string;
@@ -49,7 +52,7 @@ export default defineComponent({
     const listId = route.params.id_list;
     const { user, isAuthenticated, isLoading, logout } = useAuth0();
     const groceryList = ref<GroceryList>({ name: '', groceries: []});
-    const newItem = ref<GroceryItem>({ name: '', quantity: '', description: ''});
+    const newItem = ref<GroceryItem>({ id: '', name: '', quantity: '', description: ''});
     const socket = ref<WebSocketService | null>(null);
     const backendUrl = import.meta.env.VITE_BACKEND_BASE_URL;
     const backendWsUrl = import.meta.env.VITE_WS_BACKEND_BASE_URL;
@@ -69,8 +72,16 @@ export default defineComponent({
       }
     };
 
-    const removeItem = async (name: string) => {
-      await axios.delete(`${backendUrl}/grocery-list/${listId}/grocery/${name}`);
+    const removeItem = async (id: string) => {
+      const index = groceryList.value.groceries.findIndex(item => item.id === id);
+        if (index !== -1) {
+          groceryList.value.groceries.splice(index, 1);
+        }
+      try {
+        await axios.delete(`${backendUrl}/grocery-list/${listId}/grocery/${id}`);
+      } catch (error) {
+        console.error('Error removing item:', error);
+      }
     };
 
     const connectSocket = () => {
