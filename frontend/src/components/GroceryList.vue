@@ -115,8 +115,8 @@ export default defineComponent({
 
 <style scoped>
 .grocery-app {
-  background-color: #121212;
-  color: #ffffff;
+  background-color: #699051;
+  color: white;
   font-family: 'Roboto', sans-serif;
   padding: 20px;
   max-width: 600px;
@@ -142,7 +142,7 @@ h1 {
   margin-right: 10px;
   border: 1px solid #ccc;
   border-radius: 4px;
-  background-color: #1e1e1e;
+  background-color: #445837;
   color: #fff;
 }
 
@@ -155,13 +155,21 @@ h1 {
   margin-bottom: 20px;
 }
 
+.input-group input::placeholder {
+  color: white;
+}
+
+.input-group-description textarea::placeholder {
+  color: white;
+}
+
 .input-group-description textarea {
   width: calc(100%);
   padding: 10px;
   border: 1px solid #ccc;
   border-radius: 4px;
-  background-color: #1e1e1e;
-  color: #fff;
+  background-color: #445837;
+  color: white;
   resize: none;
 }
 
@@ -174,13 +182,13 @@ button {
   padding: 10px 20px;
   border: none;
   border-radius: 4px;
-  background-color: #006296;
+  background-color: #445837;
   color: #fff;
   cursor: pointer;
 }
 
 button:hover {
-  background-color: #00456a;
+  background-color: #35442a;
 }
 
 .to-buy-list {
@@ -190,7 +198,7 @@ button:hover {
 }
 
 .item-card button {
-  background-color: #da3203;
+  background-color: #FF843C;
   padding: 10px;
   border: none;
   border-radius: 4px;
@@ -201,7 +209,7 @@ button:hover {
 }
 
 .item-card button:hover {
-  background-color: #6f1800;
+  background-color: #FF7829;
 }
 
 @media (max-width: 800px) {
