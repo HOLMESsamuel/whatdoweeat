@@ -1,6 +1,11 @@
 <template>
   <div class="grocery-app">
-    <h1>{{groceryList.name}}</h1>
+    <div class="headline">
+      <h1>{{groceryList.name}}</h1>
+      <button class="shareButton" @click="copyId">
+        <img class="shareButtonImage" src="../assets/share.svg" alt="share list"/>
+      </button>
+    </div>
     <form @submit.prevent="addItem">
       <div class="input-group">
         <input v-model="newItem.name" placeholder="Item Name" required />
@@ -91,6 +96,15 @@ export default defineComponent({
       });
     };
 
+    const copyId = async() => {
+      try {
+        await navigator.clipboard.writeText(listId[0]);
+        console.log('Text copied to clipboard:', listId);
+      } catch (err) {
+        console.error('Failed to copy text: ', err);
+      }
+    }
+
     onMounted(() => {
       if (!isLoading.value && isAuthenticated.value) {
         fetchList();
@@ -107,7 +121,8 @@ export default defineComponent({
       logout,
       user,
       isAuthenticated,
-      isLoading
+      isLoading,
+      copyId
     };
   },
 });
@@ -125,9 +140,24 @@ export default defineComponent({
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
 }
 
+.shareButton {
+  background: none;
+  border: none;
+}
+
+.shareButtonImage {
+  filter: brightness(0) saturate(100%) invert(100%) sepia(0%) saturate(7500%) hue-rotate(124deg) brightness(101%) contrast(104%);
+}
+
+.headline {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
 h1 {
   text-align: center;
-  margin-bottom: 20px;
 }
 
 .input-group {
@@ -178,7 +208,7 @@ h1 {
   margin-bottom: 20px;
 }
 
-button {
+.input-group-button button {
   padding: 10px 20px;
   border: none;
   border-radius: 4px;
@@ -187,7 +217,7 @@ button {
   cursor: pointer;
 }
 
-button:hover {
+.input-group-button button:hover {
   background-color: #35442a;
 }
 
@@ -206,6 +236,7 @@ button:hover {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
+  color: white;
 }
 
 .item-card button:hover {

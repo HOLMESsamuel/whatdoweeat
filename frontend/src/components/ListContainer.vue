@@ -212,7 +212,7 @@ export default defineComponent({
   justify-content: space-between;
   padding: 8px;
   background-color: #FF843C;
-  color: #343a40;
+  color: white;
   border: 1px solid #dee2e6;
   border-radius: 4px;
   margin-bottom: 8px;
