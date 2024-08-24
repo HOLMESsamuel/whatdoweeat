@@ -1,6 +1,11 @@
 <template>
   <div class="grocery-app">
-    <h1>{{groceryList.name}}</h1>
+    <div class="headline">
+      <h1>{{groceryList.name}}</h1>
+      <button class="shareButton" @click="copyId">
+        <img class="shareButtonImage" src="../assets/share.svg" alt="share list"/>
+      </button>
+    </div>
     <form @submit.prevent="addItem">
       <div class="input-group">
         <input v-model="newItem.name" placeholder="Item Name" required />
@@ -91,6 +96,15 @@ export default defineComponent({
       });
     };
 
+    const copyId = async() => {
+      try {
+        await navigator.clipboard.writeText(listId[0]);
+        console.log('Text copied to clipboard:', listId);
+      } catch (err) {
+        console.error('Failed to copy text: ', err);
+      }
+    }
+
     onMounted(() => {
       if (!isLoading.value && isAuthenticated.value) {
         fetchList();
@@ -107,7 +121,8 @@ export default defineComponent({
       logout,
       user,
       isAuthenticated,
-      isLoading
+      isLoading,
+      copyId
     };
   },
 });
@@ -115,8 +130,8 @@ export default defineComponent({
 
 <style scoped>
 .grocery-app {
-  background-color: #121212;
-  color: #ffffff;
+  background-color: #699051;
+  color: white;
   font-family: 'Roboto', sans-serif;
   padding: 20px;
   max-width: 600px;
@@ -125,9 +140,24 @@ export default defineComponent({
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
 }
 
+.shareButton {
+  background: none;
+  border: none;
+}
+
+.shareButtonImage {
+  filter: brightness(0) saturate(100%) invert(100%) sepia(0%) saturate(7500%) hue-rotate(124deg) brightness(101%) contrast(104%);
+}
+
+.headline {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
 h1 {
   text-align: center;
-  margin-bottom: 20px;
 }
 
 .input-group {
@@ -142,7 +172,7 @@ h1 {
   margin-right: 10px;
   border: 1px solid #ccc;
   border-radius: 4px;
-  background-color: #1e1e1e;
+  background-color: #445837;
   color: #fff;
 }
 
@@ -155,13 +185,21 @@ h1 {
   margin-bottom: 20px;
 }
 
+.input-group input::placeholder {
+  color: white;
+}
+
+.input-group-description textarea::placeholder {
+  color: white;
+}
+
 .input-group-description textarea {
   width: calc(100%);
   padding: 10px;
   border: 1px solid #ccc;
   border-radius: 4px;
-  background-color: #1e1e1e;
-  color: #fff;
+  background-color: #445837;
+  color: white;
   resize: none;
 }
 
@@ -170,17 +208,17 @@ h1 {
   margin-bottom: 20px;
 }
 
-button {
+.input-group-button button {
   padding: 10px 20px;
   border: none;
   border-radius: 4px;
-  background-color: #006296;
+  background-color: #445837;
   color: #fff;
   cursor: pointer;
 }
 
-button:hover {
-  background-color: #00456a;
+.input-group-button button:hover {
+  background-color: #35442a;
 }
 
 .to-buy-list {
@@ -190,7 +228,7 @@ button:hover {
 }
 
 .item-card button {
-  background-color: #da3203;
+  background-color: #FF843C;
   padding: 10px;
   border: none;
   border-radius: 4px;
@@ -198,10 +236,11 @@ button:hover {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
+  color: white;
 }
 
 .item-card button:hover {
-  background-color: #6f1800;
+  background-color: #FF7829;
 }
 
 @media (max-width: 800px) {

@@ -1,41 +1,8 @@
 <template>
   <div class="grocery-app container">
-    <div class="form-section">
-      <!-- Form Section -->
-      <div class="input-group">
-        <div class="input-item">
-          <input
-            v-on:keyup.enter="addItem"
-            v-model="newItem.name"
-            placeholder="List name"
-            class="input"
-          />
-          <button
-            @click="addItem"
-            class="button"
-          >
-            Create a list
-          </button>
-        </div>
-        <div class="input-item">
-          <input
-            v-on:keyup.enter="joinList"
-            v-model="newItem._id"
-            placeholder="List id"
-            class="input"
-          />
-          <button
-            @click="joinList"
-            class="button"
-          >
-            Join a list
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <!-- List Section -->
-    <div
+    <!-- List of Grocery Lists -->
+    <div v-if="items && items.length > 0" class="list-section box">
+      <div
         v-for="item in items"
         :key="item._id"
         class="list-item"
@@ -53,92 +20,140 @@
           </svg>
         </button>
       </div>
+    </div>
+
+    <!-- Form Section to Create a List -->
+    <div class="form-section box">
+      <div class="input-group">
+        <div class="input-item">
+          <input
+            v-on:keyup.enter="addItem"
+            v-model="newItem.name"
+            placeholder="List name"
+            class="input"
+          />
+          <button
+            @click="addItem"
+            class="button"
+          >
+            Create a list
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Form Section to Join a List -->
+    <div class="form-section box">
+      <div class="input-group">
+        <div class="input-item">
+          <input
+            v-on:keyup.enter="joinList"
+            v-model="newItem._id"
+            placeholder="List id"
+            class="input"
+          />
+          <button
+            @click="joinList"
+            class="button"
+          >
+            Join a list
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
-  
-  <script lang="ts">
-  import { defineComponent, ref, onMounted } from 'vue';
-  import axios from 'axios';
-  import { useAuth0 } from '@auth0/auth0-vue';
-  import CryptoJS from 'crypto-js';
-  
-  interface GroceryList{
-    _id: string,
-    name: string;
-  }
-  
-  export default defineComponent({
-    setup() {
 
-      const hashEmail = (email: string) => {
-        return CryptoJS.SHA256(email).toString(CryptoJS.enc.Hex);
-      };
-      const backendUrl = import.meta.env.VITE_BACKEND_BASE_URL;
+  
+<script lang="ts">
+import { defineComponent, ref, onMounted } from 'vue';
+import axios from 'axios';
+import { useAuth0 } from '@auth0/auth0-vue';
+import CryptoJS from 'crypto-js';
 
-      const { user, isAuthenticated, isLoading, logout } = useAuth0();
-      let hashedEmail = "";
-      const items = ref<GroceryList[]>([]);
-      const newItem = ref<GroceryList>({ _id: '', name: ''});
-  
-      const fetchList = async () => {
-        const response = await axios.get(`${backendUrl}` + '/user/'+ `${hashedEmail}` + '/grocery-list');
-        items.value = response.data;
-      };
-  
-      const joinList = async () => {
-        if (newItem.value._id !== "") {
-          await axios.patch(`${backendUrl}/grocery-list/${newItem.value._id}/user/${hashedEmail}`);
-          fetchList();
-        }
-      }
-  
-      const addItem = async () => {
-        if (newItem.value.name !== "") {
-          await axios.post(`${backendUrl}/user/${hashedEmail}/grocery-list`, newItem.value);
-          newItem.value.name = '';
-          fetchList();
-        }
-      };
-  
-      const removeItem = async (id: string) => {
-        await axios.delete(`${backendUrl}/grocery-list/${id}`);
+interface GroceryList{
+  _id: string,
+  name: string;
+}
+
+export default defineComponent({
+  setup() {
+
+    const hashEmail = (email: string) => {
+      return CryptoJS.SHA256(email).toString(CryptoJS.enc.Hex);
+    };
+    const backendUrl = import.meta.env.VITE_BACKEND_BASE_URL;
+
+    const { user, isAuthenticated, isLoading, logout } = useAuth0();
+    let hashedEmail = "";
+    const items = ref<GroceryList[]>([]);
+    const newItem = ref<GroceryList>({ _id: '', name: ''});
+
+    const fetchList = async () => {
+      const response = await axios.get(`${backendUrl}` + '/user/'+ `${hashedEmail}` + '/grocery-list');
+      items.value = response.data;
+    };
+
+    const joinList = async () => {
+      if (newItem.value._id !== "") {
+        await axios.patch(`${backendUrl}/grocery-list/${newItem.value._id}/user/${hashedEmail}`);
         fetchList();
-      };
+      }
+    }
 
-  
-      onMounted(() => {
-        if (!isLoading.value && isAuthenticated.value) {
-          if(user && user.value && user.value.email) {
-            hashedEmail = hashEmail(user.value.email);
-          }
-          fetchList();
-          
+    const addItem = async () => {
+      if (newItem.value.name !== "") {
+        await axios.post(`${backendUrl}/user/${hashedEmail}/grocery-list`, newItem.value);
+        newItem.value.name = '';
+        fetchList();
+      }
+    };
+
+    const removeItem = async (id: string) => {
+      await axios.delete(`${backendUrl}/grocery-list/${id}`);
+      fetchList();
+    };
+
+
+    onMounted(() => {
+      if (!isLoading.value && isAuthenticated.value) {
+        if(user && user.value && user.value.email) {
+          hashedEmail = hashEmail(user.value.email);
         }
-      });
-  
-      return {
-        items,
-        newItem,
-        addItem,
-        removeItem,
-        logout,
-        joinList,
-        user,
-        isAuthenticated,
-        isLoading
-      };
-    },
-  });
-  </script>
-  
+        fetchList();
+        
+      }
+    });
+
+    return {
+      items,
+      newItem,
+      addItem,
+      removeItem,
+      logout,
+      joinList,
+      user,
+      isAuthenticated,
+      isLoading
+    };
+  },
+});
+</script>
+
+
 <style scoped>
 .container {
   max-width: 600px;
   margin: 0 auto;
   padding: 16px;
-  background-color: white;
+}
+
+.box {
+  background-color: #699051;
   border-radius: 8px;
   box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+  padding: 16px;
+  margin-bottom: 16px;
 }
 
 .form-section, .list-section {
@@ -151,10 +166,15 @@
   gap: 16px;
 }
 
+.input-group input::placeholder {
+  color: white;
+}
+
 .input-item {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  align-items: center;
 }
 
 .input {
@@ -163,21 +183,23 @@
   border-radius: 4px;
   width: 100%;
   box-sizing: border-box;
+  background-color: #445837;
+  color: white;
 }
 
 .button {
   padding: 8px;
-  background-color: #007bff;
+  background-color: #445837;
   color: white;
   border: none;
   border-radius: 4px;
   cursor: pointer;
-  width: 100%;
+  width: 150px;
   text-align: center;
 }
 
 .button:hover {
-  background-color: #0056b3;
+  background-color: #35442a;
 }
 
 .list-section {
@@ -189,8 +211,8 @@
   align-items: center;
   justify-content: space-between;
   padding: 8px;
-  background-color: #f8f9fa;
-  color: #343a40;
+  background-color: #FF843C;
+  color: white;
   border: 1px solid #dee2e6;
   border-radius: 4px;
   margin-bottom: 8px;
@@ -216,4 +238,7 @@
   fill: red;
 }
 </style>
+
+
+  
   
