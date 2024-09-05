@@ -1,11 +1,9 @@
 <template>
   <div class="grocery-app">
-    <div class="headline">
-      <h1>{{groceryList.name}}</h1>
-      <button class="shareButton" @click="copyId">
-        <img class="shareButtonImage" src="../assets/share.svg" alt="share list"/>
-      </button>
-    </div>
+    <h1>{{groceryList.name}}</h1>
+    <button class="shareButton" @click="copyId">
+      <img class="shareButtonImage" src="../assets/share.svg" alt="share list"/>
+    </button>
     <form @submit.prevent="addItem">
       <div class="input-group">
         <input v-model="newItem.name" placeholder="Item Name" required />
@@ -98,8 +96,7 @@ export default defineComponent({
 
     const copyId = async() => {
       try {
-        await navigator.clipboard.writeText(listId[0]);
-        console.log('Text copied to clipboard:', listId);
+        navigator.clipboard.writeText(listId);
       } catch (err) {
         console.error('Failed to copy text: ', err);
       }
@@ -141,19 +138,19 @@ export default defineComponent({
 }
 
 .shareButton {
+  position: relative;
+  left: 93%;
+  top:-42px;
   background: none;
   border: none;
 }
 
-.shareButtonImage {
-  filter: brightness(0) saturate(100%) invert(100%) sepia(0%) saturate(7500%) hue-rotate(124deg) brightness(101%) contrast(104%);
+.shareButton:focus {
+  outline: none;
 }
 
-.headline {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20px;
+.shareButtonImage {
+  filter: brightness(0) saturate(100%) invert(100%) sepia(0%) saturate(7500%) hue-rotate(124deg) brightness(101%) contrast(104%);
 }
 
 h1 {
