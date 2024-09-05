@@ -96,7 +96,7 @@ export default defineComponent({
 
     const copyId = async() => {
       try {
-        navigator.clipboard.writeText(listId);
+        navigator.clipboard.writeText(listId as string);
       } catch (err) {
         console.error('Failed to copy text: ', err);
       }
