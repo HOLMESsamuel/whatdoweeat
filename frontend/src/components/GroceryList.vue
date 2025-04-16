@@ -18,7 +18,13 @@
     </form>
     <div class="to-buy-list">
       <div v-for="item in groceryList.groceries" :key="item.name" class="item-card">
-        <button @click="removeItem(item.id)">
+        <button 
+          @click="removeItem(item.id)"
+          @touchstart="startTouch(item)"
+          @touchend="endTouch"
+          @touchcancel="endTouch"
+          @contextmenu.prevent="openEditModal(item)"
+        >
           <div>
             {{ item.name }} <span v-if="item.quantity">({{ item.quantity }})</span>
             <br>
@@ -27,6 +33,12 @@
         </button>
       </div>
     </div>
+    <edit-item-modal
+      :show="showEditModal"
+      :item="selectedItem"
+      @close="closeEditModal"
+      @save="updateItem"
+    />
   </div> 
 </template>
 
@@ -36,6 +48,7 @@ import axios from 'axios';
 import { WebSocketService } from '../services/websocket';
 import { useAuth0 } from '@auth0/auth0-vue';
 import { useRoute } from 'vue-router';
+import EditItemModal from './EditItemModal.vue';
 
 interface GroceryList {
   name: string,
@@ -50,6 +63,9 @@ interface GroceryItem {
 }
 
 export default defineComponent({
+  components: {
+    EditItemModal
+  },
   setup() {
     const route = useRoute();
     const listId = route.params.id_list;
@@ -59,6 +75,9 @@ export default defineComponent({
     const socket = ref<WebSocketService | null>(null);
     const backendUrl = import.meta.env.VITE_BACKEND_BASE_URL;
     const backendWsUrl = import.meta.env.VITE_WS_BACKEND_BASE_URL;
+    const showEditModal = ref(false);
+    const selectedItem = ref<GroceryItem | null>(null);
+    let touchTimer: number | null = null;
 
     const fetchList = async () => {
       const response = await axios.get(`${backendUrl}/grocery-list/${listId}`);
@@ -102,6 +121,42 @@ export default defineComponent({
       }
     }
 
+    const startTouch = (item: GroceryItem) => {
+      touchTimer = window.setTimeout(() => {
+        selectedItem.value = item;
+        showEditModal.value = true;
+      }, 500); // 500ms for long press
+    };
+
+    const endTouch = () => {
+      if (touchTimer) {
+        clearTimeout(touchTimer);
+        touchTimer = null;
+      }
+    };
+
+    const closeEditModal = () => {
+      showEditModal.value = false;
+      selectedItem.value = null;
+    };
+
+    const updateItem = async (updatedItem: GroceryItem) => {
+      try {
+        await axios.put(`${backendUrl}/grocery-list/${listId}/grocery/${updatedItem.id}`, updatedItem);
+        const index = groceryList.value.groceries.findIndex(item => item.id === updatedItem.id);
+        if (index !== -1) {
+          groceryList.value.groceries[index] = updatedItem;
+        }
+      } catch (error) {
+        console.error('Error updating item:', error);
+      }
+    };
+
+    const openEditModal = (item: GroceryItem) => {
+      selectedItem.value = item;
+      showEditModal.value = true;
+    };
+
     onMounted(() => {
       if (!isLoading.value && isAuthenticated.value) {
         fetchList();
@@ -119,7 +174,14 @@ export default defineComponent({
       user,
       isAuthenticated,
       isLoading,
-      copyId
+      copyId,
+      showEditModal,
+      selectedItem,
+      startTouch,
+      endTouch,
+      closeEditModal,
+      updateItem,
+      openEditModal
     };
   },
 });
@@ -234,6 +296,9 @@ h1 {
   flex-direction: column;
   align-items: flex-start;
   color: white;
+  width: 100%;
+  text-align: left;
+  user-select: none; /* Prevent text selection on long press */
 }
 
 .item-card button:hover {

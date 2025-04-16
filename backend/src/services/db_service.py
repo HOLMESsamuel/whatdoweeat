@@ -81,3 +81,9 @@ class DBService:
             {"$pull": {"groceries": {"id": grocery_id}}}
         )
 
+    async def update_grocery_in_list(self, list_id: PydanticObjectId, grocery_id: str, grocery: Grocery):
+        await self.grocery_list_collection.update_one(
+            {"_id": list_id, "groceries.id": grocery_id},
+            {"$set": {"groceries.$.name": grocery.name, "groceries.$.quantity": grocery.quantity, "groceries.$.description": grocery.description}}
+        )
+

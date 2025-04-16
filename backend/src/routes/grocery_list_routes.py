@@ -43,3 +43,9 @@ async def delete_grocery(list_id: PydanticObjectId, id: str, db: DBService = Dep
     await db.delete_grocery_from_list(list_id, id)
     await manager.broadcast(f"Grocery item deleted: {id}", str(list_id))
     return {"message": "Grocery item deleted"}
+
+@router.put("/grocery-list/{list_id}/grocery/{id}")
+async def update_grocery(list_id: PydanticObjectId, id: str, request: Grocery, db: DBService = Depends(get_db)):
+    await db.update_grocery_in_list(list_id, id, request)
+    await manager.broadcast(f"Grocery item updated: {request.name}", str(list_id))
+    return {"message": "Grocery item updated"}
