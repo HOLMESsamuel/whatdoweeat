@@ -76,7 +76,7 @@ export default defineComponent({
     const backendUrl = import.meta.env.VITE_BACKEND_BASE_URL;
     const backendWsUrl = import.meta.env.VITE_WS_BACKEND_BASE_URL;
     const showEditModal = ref(false);
-    const selectedItem = ref<GroceryItem | null>(null);
+    const selectedItem = ref<GroceryItem>({ id: '', name: '', quantity: '', description: ''});
     let touchTimer: number | null = null;
 
     const fetchList = async () => {
@@ -125,7 +125,7 @@ export default defineComponent({
       touchTimer = window.setTimeout(() => {
         selectedItem.value = item;
         showEditModal.value = true;
-      }, 500); // 500ms for long press
+      }, 500);
     };
 
     const endTouch = () => {
@@ -137,7 +137,7 @@ export default defineComponent({
 
     const closeEditModal = () => {
       showEditModal.value = false;
-      selectedItem.value = null;
+      selectedItem.value = { id: '', name: '', quantity: '', description: ''};
     };
 
     const updateItem = async (updatedItem: GroceryItem) => {

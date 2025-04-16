@@ -37,17 +37,19 @@ export default defineComponent({
       required: true
     },
     item: {
-      type: Object as () => GroceryItem,
+      type: Object as () => GroceryItem | null,
       required: true
     }
   },
   emits: ['close', 'save'],
   setup(props, { emit }) {
-    const editedItem = ref<GroceryItem>({ ...props.item });
+    const editedItem = ref<GroceryItem>({ id: '', name: '', quantity: '', description: '' });
 
     watch(() => props.item, (newItem) => {
-      editedItem.value = { ...newItem };
-    });
+      if (newItem) {
+        editedItem.value = { ...newItem };
+      }
+    }, { immediate: true });
 
     const closeModal = () => {
       emit('close');
