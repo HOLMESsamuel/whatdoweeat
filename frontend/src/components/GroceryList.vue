@@ -75,7 +75,6 @@ import { WebSocketService } from '../services/websocket';
 import { useAuth0 } from '@auth0/auth0-vue';
 import { useRoute } from 'vue-router';
 import EditItemModal from './EditItemModal.vue';
-import { categorizeItem } from '../services/itemCategorizer';
 
 interface GroceryList {
   name: string,
