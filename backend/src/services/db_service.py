@@ -7,6 +7,7 @@ from src.models.recipe import Recipe
 import logging
 from src.models.pydantic_object_id import PydanticObjectId
 from bson import ObjectId
+from src.services.item_sort_service import ItemSortService
 
 class DBService:
     def __init__(self, uri: str, dbname: str):
@@ -15,6 +16,7 @@ class DBService:
         self.users_collection = self.db["users"]
         self.grocery_list_collection = self.db["grocery_lists"]
         self.recipe_collection = self.db["recipes"]
+        self.item_sorter = ItemSortService()
 
     async def get_user_grocery_lists(self, user_id: str) -> User:
         grocery_lists = await self.grocery_list_collection.find({"user_ids": user_id}).to_list(1000)
@@ -69,6 +71,11 @@ class DBService:
     async def add_grocery_to_list(self, list_id: PydanticObjectId, grocery: Grocery):
         grocery.clean_name()
         grocery.generate_uuid()
+        
+        # If type is 'other', try to classify it
+        if grocery.type == 'other':
+            grocery.type = self.item_sorter.classify_grocery_item(grocery.name)
+            
         grocery_dict = grocery.dict()
         await self.grocery_list_collection.update_one(
             {"_id": list_id},
@@ -84,6 +91,12 @@ class DBService:
     async def update_grocery_in_list(self, list_id: PydanticObjectId, grocery_id: str, grocery: Grocery):
         await self.grocery_list_collection.update_one(
             {"_id": list_id, "groceries.id": grocery_id},
-            {"$set": {"groceries.$.name": grocery.name, "groceries.$.quantity": grocery.quantity, "groceries.$.description": grocery.description}}
+            {"$set": {
+                "groceries.$.name": grocery.name,
+                "groceries.$.quantity": grocery.quantity,
+                "groceries.$.description": grocery.description,
+                "groceries.$.type": grocery.type,
+                "groceries.$.color": grocery.color
+            }}
         )
 

@@ -20,6 +20,8 @@ use ctrl+b and the window number to switch. To kill all the processes use tmux k
 4. Install dependencies on the venv :
 ```
 pip install --no-cache-dir -r requirements.txt
+python -m spacy download en_core_web_sm
+python -m spacy download fr_core_news_sm
 ```
 5. run fastAPI with uvicorn : 
 ```

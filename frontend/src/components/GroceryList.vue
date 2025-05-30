@@ -9,6 +9,26 @@
         <input v-model="newItem.name" placeholder="Item Name" required />
         <input v-model="newItem.quantity" placeholder="Quantity" />
       </div>
+      <div class="input-group">
+        <select v-model="newItem.type" class="type-select">
+          <option value="vegetables">Vegetables</option>
+          <option value="fruits">Fruits</option>
+          <option value="meat">Meat</option>
+          <option value="dairy">Dairy</option>
+          <option value="pantry">Pantry</option>
+          <option value="other">Other</option>
+        </select>
+        <div class="color-picker">
+          <div 
+            v-for="color in colors" 
+            :key="color"
+            class="color-dot"
+            :class="{ selected: newItem.color === color }"
+            :style="{ backgroundColor: color }"
+            @click="newItem.color = color"
+          ></div>
+        </div>
+      </div>
       <div class="input-group-description">
         <textarea v-model="newItem.description" placeholder="Description"></textarea>
       </div>
@@ -16,21 +36,27 @@
         <button type="submit">Add Item</button>
       </div>
     </form>
-    <div class="to-buy-list">
-      <div v-for="item in groceryList.groceries" :key="item.name" class="item-card">
-        <button 
-          @click="removeItem(item.id)"
-          @touchstart="startTouch(item)"
-          @touchend="endTouch"
-          @touchcancel="endTouch"
-          @contextmenu.prevent="openEditModal(item)"
-        >
-          <div>
-            {{ item.name }} <span v-if="item.quantity">({{ item.quantity }})</span>
-            <br>
-            <small v-if="item.description">{{ item.description }}</small>
+    <div class="grocery-sections">
+      <div v-for="(items, type) in groupedItems" :key="type" class="grocery-section">
+        <h2 class="section-title">{{ String(type).charAt(0).toUpperCase() + String(type).slice(1) }}</h2>
+        <div class="to-buy-list">
+          <div v-for="item in items" :key="item.id" class="item-card">
+            <button 
+              @click="removeItem(item.id)"
+              @touchstart="startTouch(item)"
+              @touchend="endTouch"
+              @touchcancel="endTouch"
+              @contextmenu.prevent="openEditModal(item)"
+              :style="{ backgroundColor: item.color || '#FF843C' }"
+            >
+              <div>
+                {{ item.name }} <span v-if="item.quantity">({{ item.quantity }})</span>
+                <br>
+                <small v-if="item.description">{{ item.description }}</small>
+              </div>
+            </button>
           </div>
-        </button>
+        </div>
       </div>
     </div>
     <edit-item-modal
@@ -43,12 +69,13 @@
 </template>
 
 <script lang="ts">
-import { defineComponent, ref, onMounted } from 'vue';
+import { defineComponent, ref, onMounted, computed } from 'vue';
 import axios from 'axios';
 import { WebSocketService } from '../services/websocket';
 import { useAuth0 } from '@auth0/auth0-vue';
 import { useRoute } from 'vue-router';
 import EditItemModal from './EditItemModal.vue';
+import { categorizeItem } from '../services/itemCategorizer';
 
 interface GroceryList {
   name: string,
@@ -60,6 +87,8 @@ interface GroceryItem {
   name: string;
   quantity?: string;
   description?: string;
+  type?: string;
+  color?: string;
 }
 
 export default defineComponent({
@@ -71,13 +100,40 @@ export default defineComponent({
     const listId = route.params.id_list;
     const { user, isAuthenticated, isLoading, logout } = useAuth0();
     const groceryList = ref<GroceryList>({ name: '', groceries: []});
-    const newItem = ref<GroceryItem>({ id: '', name: '', quantity: '', description: ''});
+    const newItem = ref<GroceryItem>({ 
+      id: '', 
+      name: '', 
+      quantity: '', 
+      description: '',
+      type: 'other',
+      color: 'purple'
+    });
     const socket = ref<WebSocketService | null>(null);
     const backendUrl = import.meta.env.VITE_BACKEND_BASE_URL;
     const backendWsUrl = import.meta.env.VITE_WS_BACKEND_BASE_URL;
     const showEditModal = ref(false);
-    const selectedItem = ref<GroceryItem>({ id: '', name: '', quantity: '', description: ''});
+    const selectedItem = ref<GroceryItem>({ 
+      id: '', 
+      name: '', 
+      quantity: '', 
+      description: '',
+      type: 'other',
+      color: 'purple'
+    });
     let touchTimer: number | null = null;
+    const colors = ['green', 'purple', 'orange'];
+
+    const groupedItems = computed(() => {
+      const groups: { [key: string]: GroceryItem[] } = {};
+      groceryList.value.groceries.forEach(item => {
+        const type = item.type || 'other';
+        if (!groups[type]) {
+          groups[type] = [];
+        }
+        groups[type].push(item);
+      });
+      return groups;
+    });
 
     const fetchList = async () => {
       const response = await axios.get(`${backendUrl}/grocery-list/${listId}`);
@@ -91,6 +147,7 @@ export default defineComponent({
         newItem.value.name = '';
         newItem.value.quantity = '';
         newItem.value.description = '';
+        newItem.value.type = 'other'; // Reset to default
       }
     };
 
@@ -137,7 +194,7 @@ export default defineComponent({
 
     const closeEditModal = () => {
       showEditModal.value = false;
-      selectedItem.value = { id: '', name: '', quantity: '', description: ''};
+      selectedItem.value = { id: '', name: '', quantity: '', description: '', type: 'other', color: 'purple'};
     };
 
     const updateItem = async (updatedItem: GroceryItem) => {
@@ -181,7 +238,9 @@ export default defineComponent({
       endTouch,
       closeEditModal,
       updateItem,
-      openEditModal
+      openEditModal,
+      groupedItems,
+      colors
     };
   },
 });
@@ -321,6 +380,77 @@ h1 {
 
   .input-group-description textarea {
     width: calc(100%); /* Adjusting for padding */
+  }
+}
+
+.grocery-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.grocery-section {
+  background-color: #445837;
+  border-radius: 8px;
+  padding: 15px;
+}
+
+.section-title {
+  margin: 0 0 15px 0;
+  color: white;
+  font-size: 1.2em;
+}
+
+.type-select, .color-select {
+  padding: 10px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background-color: #445837;
+  color: white;
+  flex: 1;
+  margin-right: 10px;
+}
+
+.type-select:last-child, .color-select:last-child {
+  margin-right: 0;
+}
+
+@media (max-width: 800px) {
+  .type-select, .color-select {
+    margin-right: 0;
+    margin-bottom: 10px;
+  }
+}
+
+.color-picker {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 5px;
+}
+
+.color-dot {
+  width: 25px;
+  height: 25px;
+  border-radius: 50%;
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: all 0.2s ease;
+}
+
+.color-dot:hover {
+  transform: scale(1.1);
+}
+
+.color-dot.selected {
+  border-color: white;
+  transform: scale(1.1);
+}
+
+@media (max-width: 800px) {
+  .color-picker {
+    justify-content: center;
+    margin-top: 10px;
   }
 }
 </style>

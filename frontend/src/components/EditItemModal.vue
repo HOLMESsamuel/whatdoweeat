@@ -7,6 +7,26 @@
           <input v-model="editedItem.name" placeholder="Item Name" required />
           <input v-model="editedItem.quantity" placeholder="Quantity" />
         </div>
+        <div class="input-group">
+          <select v-model="editedItem.type" class="type-select">
+            <option value="vegetables">Vegetables</option>
+            <option value="fruits">Fruits</option>
+            <option value="meat">Meat</option>
+            <option value="dairy">Dairy</option>
+            <option value="pantry">Pantry</option>
+            <option value="other">Other</option>
+          </select>
+          <div class="color-picker">
+            <div 
+              v-for="color in colors" 
+              :key="color"
+              class="color-dot"
+              :class="{ selected: editedItem.color === color }"
+              :style="{ backgroundColor: color }"
+              @click="editedItem.color = color"
+            ></div>
+          </div>
+        </div>
         <div class="input-group-description">
           <textarea v-model="editedItem.description" placeholder="Description"></textarea>
         </div>
@@ -27,6 +47,8 @@ interface GroceryItem {
   name: string;
   quantity?: string;
   description?: string;
+  type?: string;
+  color?: string;
 }
 
 export default defineComponent({
@@ -43,7 +65,15 @@ export default defineComponent({
   },
   emits: ['close', 'save'],
   setup(props, { emit }) {
-    const editedItem = ref<GroceryItem>({ id: '', name: '', quantity: '', description: '' });
+    const colors = ['red', 'blue', 'green', 'purple', 'orange'];
+    const editedItem = ref<GroceryItem>({ 
+      id: '', 
+      name: '', 
+      quantity: '', 
+      description: '',
+      type: 'other',
+      color: 'purple'
+    });
 
     watch(() => props.item, (newItem) => {
       if (newItem) {
@@ -63,7 +93,8 @@ export default defineComponent({
     return {
       editedItem,
       closeModal,
-      saveItem
+      saveItem,
+      colors
     };
   }
 });
@@ -153,6 +184,59 @@ export default defineComponent({
   
   .input-group input:last-child {
     flex: 0.3;
+  }
+}
+
+.type-select {
+  padding: 10px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background-color: #445837;
+  color: white;
+  flex: 1;
+  margin-right: 10px;
+}
+
+.type-select:last-child {
+  margin-right: 0;
+}
+
+@media (max-width: 768px) {
+  .type-select {
+    margin-right: 0;
+    margin-bottom: 10px;
+  }
+}
+
+.color-picker {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 5px;
+}
+
+.color-dot {
+  width: 25px;
+  height: 25px;
+  border-radius: 50%;
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: all 0.2s ease;
+}
+
+.color-dot:hover {
+  transform: scale(1.1);
+}
+
+.color-dot.selected {
+  border-color: white;
+  transform: scale(1.1);
+}
+
+@media (max-width: 768px) {
+  .color-picker {
+    justify-content: center;
+    margin-top: 10px;
   }
 }
 </style> 

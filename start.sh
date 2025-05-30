@@ -8,6 +8,8 @@ tmux send-keys -t whatdoweeat 'cd backend' C-m
 tmux send-keys -t whatdoweeat 'if [ ! -d ".venv" ]; then python3 -m venv .venv; fi' C-m
 tmux send-keys -t whatdoweeat 'source .venv/bin/activate' C-m
 tmux send-keys -t whatdoweeat 'pip install --no-cache-dir -r requirements.txt' C-m
+tmux send-keys -t whatdoweeat 'python -m spacy download en_core_web_sm' C-m
+tmux send-keys -t whatdoweeat 'python -m spacy download fr_core_news_sm' C-m
 tmux send-keys -t whatdoweeat 'uvicorn main:app --reload' C-m
 
 # configure and start frontend on window 1

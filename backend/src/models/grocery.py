@@ -6,6 +6,8 @@ class Grocery(BaseModel):
     name : str = ""
     quantity : str = ""
     description : str = ""
+    type : str = ""  # e.g., "vegetables", "carbs", "meat", etc.
+    color : str = ""  # e.g., "red", "blue", "green", etc. for store sorting
 
     def clean_name(self):
         self.name = self.name.strip()
