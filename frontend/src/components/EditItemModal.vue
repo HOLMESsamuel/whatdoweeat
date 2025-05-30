@@ -9,11 +9,11 @@
         </div>
         <div class="input-group">
           <select v-model="editedItem.type" class="type-select">
-            <option value="vegetables">Vegetables</option>
-            <option value="fruits">Fruits</option>
+            <option value="vegetables">Vegetables/Fruits</option>
             <option value="meat">Meat</option>
             <option value="dairy">Dairy</option>
             <option value="pantry">Pantry</option>
+            <option value="pantry">Frozen</option>
             <option value="other">Other</option>
           </select>
           <div class="color-picker">
@@ -65,7 +65,7 @@ export default defineComponent({
   },
   emits: ['close', 'save'],
   setup(props, { emit }) {
-    const colors = ['red', 'blue', 'green', 'purple', 'orange'];
+    const colors = ['green', 'purple', 'orange'];
     const editedItem = ref<GroceryItem>({ 
       id: '', 
       name: '', 

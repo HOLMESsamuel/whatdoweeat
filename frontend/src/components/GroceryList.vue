@@ -11,11 +11,11 @@
       </div>
       <div class="input-group">
         <select v-model="newItem.type" class="type-select">
-          <option value="vegetables">Vegetables</option>
-          <option value="fruits">Fruits</option>
+          <option value="vegetables">Vegetables/Fruits</option>
           <option value="meat">Meat</option>
           <option value="dairy">Dairy</option>
           <option value="pantry">Pantry</option>
+          <option value="pantry">Frozen</option>
           <option value="other">Other</option>
         </select>
         <div class="color-picker">
