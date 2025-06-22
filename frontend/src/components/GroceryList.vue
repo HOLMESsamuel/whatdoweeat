@@ -15,7 +15,7 @@
           <option value="meat">Meat</option>
           <option value="dairy">Dairy</option>
           <option value="pantry">Pantry</option>
-          <option value="pantry">Frozen</option>
+          <option value="frozen">Frozen</option>
           <option value="other">Other</option>
         </select>
         <div class="color-picker">
