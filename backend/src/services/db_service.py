@@ -44,6 +44,11 @@ class DBService:
         logging.warning(f"No recipe found with _id: {recipe_id}")
         return None
 
+    async def get_recipes(self) -> List[Recipe]:
+        logging.info("Fetching all recipes")
+        recipes = await self.recipe_collection.find().to_list(1000)
+        return [Recipe(**doc) for doc in recipes]
+
     async def add_grocery_list(self, grocery_list: GroceryList):
         grocery_list_dict = grocery_list.dict(by_alias=True)
         if '_id' in grocery_list_dict and isinstance(grocery_list_dict['_id'], str):
@@ -55,6 +60,15 @@ class DBService:
         if '_id' in recipe_dict and isinstance(recipe_dict['_id'], str):
             recipe_dict['_id'] = ObjectId(recipe_dict['_id'])
         await self.recipe_collection.insert_one(recipe_dict)
+
+    async def update_recipe(self, recipe_id: PydanticObjectId, recipe: Recipe):
+        recipe_dict = recipe.dict(by_alias=True)
+        if '_id' in recipe_dict and isinstance(recipe_dict['_id'], str):
+            recipe_dict['_id'] = ObjectId(recipe_dict['_id'])
+        await self.recipe_collection.update_one(
+            {"_id": recipe_id},
+            {"$set": recipe_dict}
+        )
 
     async def add_user_to_grocery_list(self, list_id: PydanticObjectId, user_id: str):
         await self.grocery_list_collection.find_one_and_update(
@@ -73,8 +87,8 @@ class DBService:
         grocery.generate_uuid()
         
         # If type is 'other', try to classify it
-        if grocery.type == 'other':
-            grocery.type = self.item_sorter.classify_grocery_item(grocery.name)
+        # if grocery.type == 'other':
+        #     grocery.type = self.item_sorter.classify_grocery_item(grocery.name)
             
         grocery_dict = grocery.dict()
         await self.grocery_list_collection.update_one(
