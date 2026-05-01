@@ -60,13 +60,11 @@ export default defineComponent({
     });
     const message = ref('');
 
-    let userId = '';
     let userPath = '';
 
     const fetchStatus = async () => {
       const sub = user.value?.sub;
       if (!sub) return;
-      userId = sub;
       userPath = encodeURIComponent(sub);
       loading.value = true;
       try {
