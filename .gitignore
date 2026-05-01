@@ -1,1 +1,6 @@
 /db
+/.venv
+/prod/.env
+/prod/db
+log-last-update
+/.env.dev

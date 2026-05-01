@@ -67,9 +67,8 @@
   
 <script lang="ts">
 import { defineComponent, ref, onMounted } from 'vue';
-import axios from 'axios';
 import { useAuth0 } from '@auth0/auth0-vue';
-import CryptoJS from 'crypto-js';
+import { getApi } from '../services/api';
 
 interface GroceryList{
   _id: string,
@@ -79,49 +78,49 @@ interface GroceryList{
 export default defineComponent({
   setup() {
 
-    const hashEmail = (email: string) => {
-      return CryptoJS.SHA256(email).toString(CryptoJS.enc.Hex);
-    };
-    const backendUrl = import.meta.env.VITE_BACKEND_BASE_URL;
+    const api = getApi();
 
     const { user, isAuthenticated, isLoading, logout } = useAuth0();
-    let hashedEmail = "";
+    // Auth0 `sub` is the canonical user-id. Encode it for URL paths;
+    // `sub` contains `|` for some providers.
+    let userId = "";
+    let userPath = "";
     const items = ref<GroceryList[]>([]);
     const newItem = ref<GroceryList>({ _id: '', name: ''});
 
     const fetchList = async () => {
-      const response = await axios.get(`${backendUrl}` + '/user/'+ `${hashedEmail}` + '/grocery-list');
+      const response = await api.get(`/user/${userPath}/grocery-list`);
       items.value = response.data;
     };
 
     const joinList = async () => {
       if (newItem.value._id !== "") {
-        await axios.patch(`${backendUrl}/grocery-list/${newItem.value._id}/user/${hashedEmail}`);
+        await api.patch(`/grocery-list/${newItem.value._id}/user/${userPath}`);
         fetchList();
       }
     }
 
     const addItem = async () => {
       if (newItem.value.name !== "") {
-        await axios.post(`${backendUrl}/user/${hashedEmail}/grocery-list`, newItem.value);
+        await api.post(`/user/${userPath}/grocery-list`, newItem.value);
         newItem.value.name = '';
         fetchList();
       }
     };
 
     const removeItem = async (id: string) => {
-      await axios.delete(`${backendUrl}/grocery-list/${id}`);
+      await api.delete(`/grocery-list/${id}`);
       fetchList();
     };
 
 
     onMounted(() => {
       if (!isLoading.value && isAuthenticated.value) {
-        if(user && user.value && user.value.email) {
-          hashedEmail = hashEmail(user.value.email);
+        if (user.value?.sub) {
+          userId = user.value.sub;
+          userPath = encodeURIComponent(userId);
         }
-        fetchList();
-        
+        if (userId) fetchList();
       }
     });
 

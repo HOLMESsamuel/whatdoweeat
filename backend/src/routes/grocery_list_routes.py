@@ -2,6 +2,7 @@ import os
 from fastapi import APIRouter, Depends, Response, status
 from ..services.db_service import DBService
 from ..services.ws_service import ConnectionManager
+from ..services.auth_service import CurrentUser, get_current_user
 from ..models.grocery_list import GroceryList
 from ..models.grocery import Grocery
 from ..models.pydantic_object_id import PydanticObjectId
@@ -15,37 +16,71 @@ db = DBService(mongo_uri, "whatdoweeat")
 def get_db():
     return db
 
+# Every grocery-list endpoint requires a valid Auth0 JWT. Membership-
+# level enforcement (caller must be in the list's user_ids) is a
+# tighter check we don't yet do — but at least no anonymous access.
+
 @router.patch("/grocery-list/{list_id}/user/{user_id}")
-async def add_user_to_grocery_list(list_id: PydanticObjectId, user_id: str, db: DBService = Depends(get_db)):
+async def add_user_to_grocery_list(
+    list_id: PydanticObjectId,
+    user_id: str,
+    user: CurrentUser = Depends(get_current_user),
+    db: DBService = Depends(get_db),
+):
     await db.add_user_to_grocery_list(list_id, user_id)
     return {"message": "user added to grocery list"}
 
 @router.get("/grocery-list/{list_id}", status_code=200)
-async def get_grocery_list(list_id: PydanticObjectId, response: Response, db: DBService = Depends(get_db)):
+async def get_grocery_list(
+    list_id: PydanticObjectId,
+    response: Response,
+    user: CurrentUser = Depends(get_current_user),
+    db: DBService = Depends(get_db),
+):
     grocery_list = await db.get_grocery_list(list_id)
     if grocery_list is None:
         response.status_code = status.HTTP_204_NO_CONTENT
     return grocery_list
 
 @router.delete("/grocery-list/{list_id}")
-async def delete_grocery_list(list_id: PydanticObjectId, db: DBService = Depends(get_db)):
+async def delete_grocery_list(
+    list_id: PydanticObjectId,
+    user: CurrentUser = Depends(get_current_user),
+    db: DBService = Depends(get_db),
+):
     grocery_list = await db.delete_grocery_list(list_id)
     return grocery_list
 
 @router.post("/grocery-list/{list_id}/grocery")
-async def add_grocery(request: Grocery, list_id: PydanticObjectId, db: DBService = Depends(get_db)):
+async def add_grocery(
+    request: Grocery,
+    list_id: PydanticObjectId,
+    user: CurrentUser = Depends(get_current_user),
+    db: DBService = Depends(get_db),
+):
     await db.add_grocery_to_list(list_id, request)
     await manager.broadcast(f"Grocery item added: {request.name}", str(list_id))
     return {"message": "Grocery item added"}
 
 @router.delete("/grocery-list/{list_id}/grocery/{id}")
-async def delete_grocery(list_id: PydanticObjectId, id: str, db: DBService = Depends(get_db)):
+async def delete_grocery(
+    list_id: PydanticObjectId,
+    id: str,
+    user: CurrentUser = Depends(get_current_user),
+    db: DBService = Depends(get_db),
+):
     await db.delete_grocery_from_list(list_id, id)
     await manager.broadcast(f"Grocery item deleted: {id}", str(list_id))
     return {"message": "Grocery item deleted"}
 
 @router.put("/grocery-list/{list_id}/grocery/{id}")
-async def update_grocery(list_id: PydanticObjectId, id: str, request: Grocery, db: DBService = Depends(get_db)):
+async def update_grocery(
+    list_id: PydanticObjectId,
+    id: str,
+    request: Grocery,
+    user: CurrentUser = Depends(get_current_user),
+    db: DBService = Depends(get_db),
+):
     await db.update_grocery_in_list(list_id, id, request)
     await manager.broadcast(f"Grocery item updated: {request.name}", str(list_id))
     return {"message": "Grocery item updated"}

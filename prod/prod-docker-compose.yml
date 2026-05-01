@@ -1,0 +1,91 @@
+version: '3.9'
+
+# Production compose file. Pulls images from Docker Hub and reads
+# secrets from prod/.env. Recipes come from each user's own Dropbox
+# (per-user OAuth), so there is no recipes folder mounted on the host.
+#
+# Sibling files this compose expects to find next to it (in prod/):
+#   .env         secrets — see .env.example
+#   nginx.conf   frontend nginx config; serves SPA + proxies /api -> backend
+#   certbot/     populated by the certbot service (TLS cert + ACME challenge)
+#   db/          mongo-data persisted via the named volume below
+
+services:
+  mongodb:
+    image: mongo:latest
+    restart: unless-stopped
+    volumes:
+      - mongo-data:/data/db
+    networks:
+      - backend-network
+
+  backend:
+    image: samuelholmes/whatdoweeat-backend:latest
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    depends_on:
+      - mongodb
+    environment:
+      - MONGO_URI=mongodb://mongodb:27017/whatdoweeat
+      # Auth0 — used to validate user JWTs.
+      - AUTH0_DOMAIN=${AUTH0_DOMAIN}
+      - AUTH0_AUDIENCE=${AUTH0_AUDIENCE}
+      # Shared whatdoweeat Dropbox app credentials. Each user's own
+      # refresh token is stored encrypted per-user in Mongo.
+      - DROPBOX_APP_KEY=${DROPBOX_APP_KEY}
+      - DROPBOX_APP_SECRET=${DROPBOX_APP_SECRET}
+      - DROPBOX_TOKEN_ENC_KEY=${DROPBOX_TOKEN_ENC_KEY}
+      # Public URLs for the OAuth redirect dance.
+      - BACKEND_PUBLIC_URL=${BACKEND_PUBLIC_URL}
+      - FRONTEND_PUBLIC_URL=${FRONTEND_PUBLIC_URL}
+    env_file:
+      - .env
+    networks:
+      - backend-network
+
+  frontend:
+    image: samuelholmes/whatdoweeat-frontend:latest
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
+      - ./certbot/www:/var/www/certbot/:ro
+      - ./certbot/conf/:/etc/nginx/ssl/:ro
+    depends_on:
+      - backend
+    networks:
+      - backend-network
+
+  # Renews the Let's Encrypt cert every 60 days. The container exits
+  # after the renewal run; the deploy.restart_policy.delay re-creates
+  # it on schedule when running under docker swarm. With plain
+  # `docker compose`, you'll want to invoke this manually or via cron
+  # (e.g. add a line in update-script.sh).
+  certbot:
+    image: certbot/certbot:latest
+    volumes:
+      - ./certbot/www/:/var/www/certbot/:rw
+      - ./certbot/conf/:/etc/letsencrypt/:rw
+    command: >
+      certonly --webroot -w /var/www/certbot
+      --force-renewal --agree-tos
+      --email sam.holmes@live.fr
+      -d whatdoweeat.fr
+    networks:
+      - backend-network
+    depends_on:
+      - frontend
+    deploy:
+      restart_policy:
+        condition: none
+        delay: 5184000s   # 60 days
+
+networks:
+  backend-network:
+    driver: bridge
+
+volumes:
+  mongo-data:

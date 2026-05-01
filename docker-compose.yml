@@ -18,6 +18,13 @@ services:
       - mongodb
     environment:
       - MONGO_URI=mongodb://mongodb:27017/whatdoweeat
+      # Path *inside the container* where recipe markdown files are mounted.
+      # The host folder is set via the RECIPES_HOST_DIR env var (see .env or
+      # your shell), defaulting to ~/Dropbox/ideaverse/Recettes/recette-templated.
+      - RECIPES_DIR=/recipes
+    volumes:
+      # Mount the user's Obsidian recipe folder read-only.
+      - ${RECIPES_HOST_DIR:-~/Dropbox/ideaverse/Recettes/recette-templated}:/recipes:ro
     networks:
       - backend-network
 

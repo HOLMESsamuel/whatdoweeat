@@ -70,11 +70,11 @@
 
 <script lang="ts">
 import { defineComponent, ref, onMounted, computed } from 'vue';
-import axios from 'axios';
 import { WebSocketService } from '../services/websocket';
 import { useAuth0 } from '@auth0/auth0-vue';
 import { useRoute } from 'vue-router';
 import EditItemModal from './EditItemModal.vue';
+import { getApi } from '../services/api';
 
 interface GroceryList {
   name: string,
@@ -108,7 +108,7 @@ export default defineComponent({
       color: 'purple'
     });
     const socket = ref<WebSocketService | null>(null);
-    const backendUrl = import.meta.env.VITE_BACKEND_BASE_URL;
+    const api = getApi();
     const backendWsUrl = import.meta.env.VITE_WS_BACKEND_BASE_URL;
     const showEditModal = ref(false);
     const selectedItem = ref<GroceryItem>({ 
@@ -135,14 +135,14 @@ export default defineComponent({
     });
 
     const fetchList = async () => {
-      const response = await axios.get(`${backendUrl}/grocery-list/${listId}`);
+      const response = await api.get(`/grocery-list/${listId}`);
       groceryList.value = response.data;
     };
 
     const addItem = async () => {
       if (newItem.value.name !== "") {
         newItem.value.name = newItem.value.name.trim();
-        await axios.post(`${backendUrl}/grocery-list/${listId}/grocery`, newItem.value);
+        await api.post(`/grocery-list/${listId}/grocery`, newItem.value);
         newItem.value.name = '';
         newItem.value.quantity = '';
         newItem.value.description = '';
@@ -156,7 +156,7 @@ export default defineComponent({
           groceryList.value.groceries.splice(index, 1);
         }
       try {
-        await axios.delete(`${backendUrl}/grocery-list/${listId}/grocery/${id}`);
+        await api.delete(`/grocery-list/${listId}/grocery/${id}`);
       } catch (error) {
         console.error('Error removing item:', error);
       }
@@ -198,7 +198,7 @@ export default defineComponent({
 
     const updateItem = async (updatedItem: GroceryItem) => {
       try {
-        await axios.put(`${backendUrl}/grocery-list/${listId}/grocery/${updatedItem.id}`, updatedItem);
+        await api.put(`/grocery-list/${listId}/grocery/${updatedItem.id}`, updatedItem);
         const index = groceryList.value.groceries.findIndex(item => item.id === updatedItem.id);
         if (index !== -1) {
           groceryList.value.groceries[index] = updatedItem;

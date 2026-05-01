@@ -5,6 +5,8 @@ import { createAuthGuard } from "@auth0/auth0-vue";
 import { App } from 'vue';
 import ListContainer from "../components/ListContainer.vue";
 import GroceryList from "../components/GroceryList.vue";
+import Recipe from "../views/Recipe.vue";
+import RecipeDetail from "../components/RecipeDetail.vue";
 
 export function createRouter(app: App): Router {
   return createVueRouter({
@@ -30,6 +32,18 @@ export function createRouter(app: App): Router {
         path: "/lists/:id_list",
         name: "grocery list",
         component: GroceryList,
+        beforeEnter: createAuthGuard(app)
+      },
+      {
+        path: "/recipes",
+        name: "recipes",
+        component: Recipe,
+        beforeEnter: createAuthGuard(app)
+      },
+      {
+        path: "/recipes/:id",
+        name: "recipe-detail",
+        component: RecipeDetail,
         beforeEnter: createAuthGuard(app)
       }
     ],

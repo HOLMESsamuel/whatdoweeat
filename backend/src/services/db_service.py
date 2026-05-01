@@ -1,9 +1,10 @@
+from datetime import datetime
 from motor.motor_asyncio import AsyncIOMotorClient
-from typing import List
+from typing import List, Optional
 from src.models.grocery import Grocery
 from src.models.user import User
 from src.models.grocery_list import GroceryList
-from src.models.recipe import Recipe
+from src.models.dropbox_credential import DropboxCredential
 import logging
 from src.models.pydantic_object_id import PydanticObjectId
 from bson import ObjectId
@@ -15,7 +16,9 @@ class DBService:
         self.db = self.client[dbname]
         self.users_collection = self.db["users"]
         self.grocery_list_collection = self.db["grocery_lists"]
-        self.recipe_collection = self.db["recipes"]
+        self.dropbox_credentials_collection = self.db["dropbox_credentials"]
+        # Recipes are no longer stored in Mongo — they're parsed from
+        # markdown files by RecipeFileService.
         self.item_sorter = ItemSortService()
 
     async def get_user_grocery_lists(self, user_id: str) -> User:
@@ -33,42 +36,11 @@ class DBService:
         logging.warning(f"No grocery list found with _id: {list_id}")
         return None
     
-    async def get_recipe(self, recipe_id: PydanticObjectId) -> GroceryList:
-        logging.info(f"Querying for recipe with _id: {recipe_id}")
-        recipe = await self.recipe_collection.find_one({"_id": recipe_id})
-        
-        if recipe:
-            logging.info(f"Grocery list found: {recipe}")
-            return Recipe(**recipe)
-        
-        logging.warning(f"No recipe found with _id: {recipe_id}")
-        return None
-
-    async def get_recipes(self) -> List[Recipe]:
-        logging.info("Fetching all recipes")
-        recipes = await self.recipe_collection.find().to_list(1000)
-        return [Recipe(**doc) for doc in recipes]
-
     async def add_grocery_list(self, grocery_list: GroceryList):
         grocery_list_dict = grocery_list.dict(by_alias=True)
         if '_id' in grocery_list_dict and isinstance(grocery_list_dict['_id'], str):
             grocery_list_dict['_id'] = ObjectId(grocery_list_dict['_id'])
         await self.grocery_list_collection.insert_one(grocery_list_dict)
-
-    async def add_recipe(self, recipe: Recipe):
-        recipe_dict = recipe.dict(by_alias=True)
-        if '_id' in recipe_dict and isinstance(recipe_dict['_id'], str):
-            recipe_dict['_id'] = ObjectId(recipe_dict['_id'])
-        await self.recipe_collection.insert_one(recipe_dict)
-
-    async def update_recipe(self, recipe_id: PydanticObjectId, recipe: Recipe):
-        recipe_dict = recipe.dict(by_alias=True)
-        if '_id' in recipe_dict and isinstance(recipe_dict['_id'], str):
-            recipe_dict['_id'] = ObjectId(recipe_dict['_id'])
-        await self.recipe_collection.update_one(
-            {"_id": recipe_id},
-            {"$set": recipe_dict}
-        )
 
     async def add_user_to_grocery_list(self, list_id: PydanticObjectId, user_id: str):
         await self.grocery_list_collection.find_one_and_update(
@@ -78,9 +50,6 @@ class DBService:
 
     async def delete_grocery_list(self, list_id: PydanticObjectId):
         await self.grocery_list_collection.delete_one({"_id": list_id})
-
-    async def delete_recipe(self, recipe_id: PydanticObjectId):
-        await self.recipe_collection.delete_one({"_id": recipe_id})
 
     async def add_grocery_to_list(self, list_id: PydanticObjectId, grocery: Grocery):
         grocery.clean_name()
@@ -113,4 +82,61 @@ class DBService:
                 "groceries.$.color": grocery.color
             }}
         )
+
+    # -- Dropbox per-user credentials -----------------------------------
+
+    async def get_user_dropbox_credentials(
+        self, user_id: str
+    ) -> Optional[DropboxCredential]:
+        doc = await self.dropbox_credentials_collection.find_one(
+            {"user_id": user_id}
+        )
+        if doc is None:
+            return None
+        # Strip Mongo's _id; the model doesn't carry it.
+        doc.pop("_id", None)
+        return DropboxCredential(**doc)
+
+    async def upsert_user_dropbox_credentials(
+        self,
+        user_id: str,
+        encrypted_refresh_token: str,
+        recipes_path: str,
+    ) -> None:
+        now = datetime.utcnow()
+        await self.dropbox_credentials_collection.update_one(
+            {"user_id": user_id},
+            {
+                "$set": {
+                    "encrypted_refresh_token": encrypted_refresh_token,
+                    "recipes_path": recipes_path,
+                    "updated_at": now,
+                },
+                "$setOnInsert": {
+                    "user_id": user_id,
+                    "created_at": now,
+                },
+            },
+            upsert=True,
+        )
+
+    async def update_user_dropbox_recipes_path(
+        self, user_id: str, recipes_path: str
+    ) -> bool:
+        result = await self.dropbox_credentials_collection.update_one(
+            {"user_id": user_id},
+            {
+                "$set": {
+                    "recipes_path": recipes_path,
+                    "updated_at": datetime.utcnow(),
+                }
+            },
+        )
+        return result.matched_count > 0
+
+    async def delete_user_dropbox_credentials(self, user_id: str) -> bool:
+        result = await self.dropbox_credentials_collection.delete_one(
+            {"user_id": user_id}
+        )
+        return result.deleted_count > 0
 

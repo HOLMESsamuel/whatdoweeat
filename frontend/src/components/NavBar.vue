@@ -53,7 +53,7 @@
               <router-link to="/lists" class="nav-link">Grocery lists</router-link>
             </li>
             <li class="nav-item" v-if="isAuthenticated">
-              <router-link to="/recipes" class="nav-link">recipes</router-link>
+              <router-link to="/recipes" class="nav-link">Recipes</router-link>
             </li>
             <li class="nav-item" v-if="isAuthenticated">
               <router-link to="/planner" class="nav-link">Meal planner</router-link>
