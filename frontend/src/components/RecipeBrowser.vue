@@ -21,79 +21,21 @@
     </div>
 
     <!-- Connected: filters + recipe list. -->
-    <template v-else-if="status.connected">
-      <div class="filters-section">
-        <div class="search-bar">
-          <input
-            v-model="searchQuery"
-            placeholder="Search by name or tag..."
-            class="search-input"
-          />
-        </div>
-        <div class="filter-options">
-          <select v-model="selectedTag" class="filter-select">
-            <option value="">All tags ({{ recipes.length }})</option>
-            <option
-              v-for="tag in availableTags"
-              :key="tag.name"
-              :value="tag.name"
-            >
-              {{ tag.name }} ({{ tag.count }})
-            </option>
-          </select>
-        </div>
-      </div>
-
-      <div v-if="loadingRecipes" class="loading">Loading recipes…</div>
-      <div v-else-if="filteredRecipes.length === 0" class="empty-state">
-        No recipes match.
-      </div>
-
-      <div class="recipes-list">
-        <div
-          v-for="recipe in filteredRecipes"
-          :key="recipe.id"
-          class="recipe-item"
-          @click="viewRecipe(recipe)"
-        >
-          <span class="recipe-name">{{ recipe.name }}</span>
-          <span class="recipe-tags">
-            <span v-for="tag in recipe.tags" :key="tag" class="recipe-tag">
-              {{ tag }}
-            </span>
-          </span>
-        </div>
-      </div>
-    </template>
+    <recipe-list
+      v-else-if="status.connected"
+      :recipes="recipes"
+      :loading="loadingRecipes"
+      @select="viewRecipe"
+    />
   </div>
 </template>
 
 <script lang="ts">
-import { defineComponent, ref, computed, onMounted, watch } from 'vue';
+import { defineComponent, ref, onMounted, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuth0 } from '@auth0/auth0-vue';
 import { getApi } from '../services/api';
-
-interface Grocery {
-  id: string;
-  name: string;
-  quantity: string;
-  description?: string;
-}
-
-interface Recipe {
-  id: string;
-  name: string;
-  tags: string[];
-  time: string;
-  servings: number;
-  groceries: Grocery[];
-}
-
-interface TagBucket {
-  name: string;
-  count: number;
-}
+import RecipeList, { Recipe } from './RecipeList.vue';
 
 interface DropboxStatus {
   connected: boolean;
@@ -105,6 +47,7 @@ const DEFAULT_PATH = '/ideaverse/Recettes/recette-templated';
 
 export default defineComponent({
   name: 'RecipeBrowser',
+  components: { RecipeList },
   setup() {
     const router = useRouter();
     const route = useRoute();
@@ -112,8 +55,6 @@ export default defineComponent({
     const api = getApi();
 
     const recipes = ref<Recipe[]>([]);
-    const searchQuery = ref('');
-    const selectedTag = ref('');
     const loadingRecipes = ref(false);
 
     const status = ref<DropboxStatus>({ connected: false, loading: true });
@@ -178,34 +119,6 @@ export default defineComponent({
       }
     };
 
-    const availableTags = computed<TagBucket[]>(() => {
-      const counts = new Map<string, number>();
-      for (const recipe of recipes.value) {
-        for (const tag of recipe.tags || []) {
-          counts.set(tag, (counts.get(tag) || 0) + 1);
-        }
-      }
-      return Array.from(counts.entries())
-        .map(([name, count]) => ({ name, count }))
-        .sort((a, b) =>
-          b.count !== a.count ? b.count - a.count : a.name.localeCompare(b.name)
-        );
-    });
-
-    const filteredRecipes = computed(() => {
-      const q = searchQuery.value.trim().toLowerCase();
-      const tag = selectedTag.value;
-      return recipes.value.filter(recipe => {
-        const matchesTag = !tag || (recipe.tags || []).includes(tag);
-        if (!matchesTag) return false;
-        if (!q) return true;
-        const haystack = [recipe.name, ...(recipe.tags || [])]
-          .join(' ')
-          .toLowerCase();
-        return haystack.includes(q);
-      });
-    });
-
     const viewRecipe = (recipe: Recipe) => {
       router.push(`/recipes/${recipe.id}`);
     };
@@ -248,10 +161,6 @@ export default defineComponent({
       connectError,
       appName,
       recipes,
-      searchQuery,
-      selectedTag,
-      availableTags,
-      filteredRecipes,
       loadingRecipes,
       viewRecipe,
       connectDropbox,
@@ -334,88 +243,5 @@ export default defineComponent({
   color: #b91c1c;
   margin-top: 12px;
   font-size: 0.9em;
-}
-
-.filters-section {
-  margin-bottom: 20px;
-}
-
-.search-bar {
-  margin-bottom: 15px;
-}
-
-.search-input {
-  width: 100%;
-  padding: 10px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-  background-color: #445837;
-  color: white;
-  box-sizing: border-box;
-}
-
-.search-input::placeholder {
-  color: #cfd8c5;
-}
-
-.filter-options {
-  display: flex;
-  gap: 10px;
-  margin-bottom: 20px;
-}
-
-.filter-select {
-  flex: 1;
-  padding: 8px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-  background-color: #445837;
-  color: white;
-}
-
-.empty-state,
-.loading {
-  text-align: center;
-  padding: 30px;
-  color: #888;
-}
-
-.recipes-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.recipe-item {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  background-color: #699051;
-  padding: 15px;
-  border-radius: 8px;
-  color: white;
-  cursor: pointer;
-  transition: background-color 0.2s;
-}
-
-.recipe-item:hover {
-  background-color: #445837;
-}
-
-.recipe-name {
-  font-size: 1.1em;
-}
-
-.recipe-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.recipe-tag {
-  background-color: rgba(255, 255, 255, 0.18);
-  padding: 2px 8px;
-  border-radius: 999px;
-  font-size: 0.8em;
 }
 </style>
