@@ -5,10 +5,42 @@ from src.models.grocery import Grocery
 from src.models.user import User
 from src.models.grocery_list import GroceryList
 from src.models.dropbox_credential import DropboxCredential
+from src.models.meal_plan import MealPlan
 import logging
 from src.models.pydantic_object_id import PydanticObjectId
 from bson import ObjectId
 from src.services.item_sort_service import ItemSortService
+
+
+def _migrate_meal_plan_doc(doc: dict) -> dict:
+    """Convert legacy {day, slot, recipe_id, recipe_name} entries to the
+    multi-recipe shape {day, label, recipes:[{recipe_id, recipe_name}]}.
+    New-shape docs pass through untouched."""
+    meals = doc.get("meals") or []
+    if not meals or ("recipes" in meals[0] and "label" in meals[0]):
+        return doc
+    grouped: dict = {}
+    order: list = []
+    for m in meals:
+        day = m.get("day", "")
+        label = m.get("label") or m.get("slot") or ""
+        if label:
+            label = label[:1].upper() + label[1:]
+        key = (day, label)
+        if key not in grouped:
+            grouped[key] = []
+            order.append(key)
+        if m.get("recipe_id"):
+            grouped[key].append({
+                "recipe_id": m["recipe_id"],
+                "recipe_name": m.get("recipe_name", ""),
+            })
+    doc["meals"] = [
+        {"day": d, "label": lbl, "recipes": grouped[(d, lbl)]}
+        for (d, lbl) in order
+    ]
+    return doc
+
 
 class DBService:
     def __init__(self, uri: str, dbname: str):
@@ -17,6 +49,7 @@ class DBService:
         self.users_collection = self.db["users"]
         self.grocery_list_collection = self.db["grocery_lists"]
         self.dropbox_credentials_collection = self.db["dropbox_credentials"]
+        self.meal_plans_collection = self.db["meal_plans"]
         # Recipes are no longer stored in Mongo — they're parsed from
         # markdown files by RecipeFileService.
         self.item_sorter = ItemSortService()
@@ -139,4 +172,21 @@ class DBService:
             {"user_id": user_id}
         )
         return result.deleted_count > 0
+
+    # -- Meal plan ------------------------------------------------------
+
+    async def get_user_meal_plan(self, user_id: str) -> MealPlan:
+        doc = await self.meal_plans_collection.find_one({"user_id": user_id})
+        if doc is None:
+            return MealPlan(user_id=user_id, meals=[])
+        doc.pop("_id", None)
+        doc = _migrate_meal_plan_doc(doc)
+        return MealPlan(**doc)
+
+    async def upsert_user_meal_plan(self, user_id: str, plan: MealPlan) -> None:
+        await self.meal_plans_collection.update_one(
+            {"user_id": user_id},
+            {"$set": {"user_id": user_id, "meals": [m.dict() for m in plan.meals]}},
+            upsert=True,
+        )
 
