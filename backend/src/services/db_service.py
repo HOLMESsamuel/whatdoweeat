@@ -1,6 +1,7 @@
 from datetime import datetime
 from motor.motor_asyncio import AsyncIOMotorClient
-from typing import List, Optional
+from pymongo import UpdateOne
+from typing import List, Optional, Tuple
 from src.models.grocery import Grocery
 from src.models.user import User
 from src.models.grocery_list import GroceryList
@@ -50,8 +51,10 @@ class DBService:
         self.grocery_list_collection = self.db["grocery_lists"]
         self.dropbox_credentials_collection = self.db["dropbox_credentials"]
         self.meal_plans_collection = self.db["meal_plans"]
-        # Recipes are no longer stored in Mongo — they're parsed from
-        # markdown files by RecipeFileService.
+        # Recipes themselves still come from markdown via RecipeFileService;
+        # this collection only stores the parse cache so a backend restart
+        # doesn't have to re-download every file.
+        self.recipe_cache_collection = self.db["recipe_cache"]
         self.item_sorter = ItemSortService()
 
     async def get_user_grocery_lists(self, user_id: str) -> User:
@@ -188,5 +191,53 @@ class DBService:
             {"user_id": user_id},
             {"$set": {"user_id": user_id, "meals": [m.dict() for m in plan.meals]}},
             upsert=True,
+        )
+
+    # -- Recipe parse cache --------------------------------------------
+    # Persisted mirror of RecipeFileService's in-memory cache. Each doc is
+    # one parsed file: `{user_id, identifier, mtime, recipe}`. `recipe` may
+    # be None for files that weren't recipes (`type: recette` missing) — we
+    # still cache the negative result so we don't re-parse them on every
+    # cold start.
+
+    async def get_recipe_cache(self, user_id: str) -> List[dict]:
+        cursor = self.recipe_cache_collection.find({"user_id": user_id})
+        return await cursor.to_list(length=None)
+
+    async def upsert_recipe_cache_entries(
+        self,
+        user_id: str,
+        entries: List[Tuple[str, float, Optional[dict]]],
+    ) -> None:
+        if not entries:
+            return
+        now = datetime.utcnow()
+        ops = [
+            UpdateOne(
+                {"user_id": user_id, "identifier": ident},
+                {
+                    "$set": {
+                        "mtime": mtime,
+                        "recipe": recipe_dict,
+                        "updated_at": now,
+                    },
+                    "$setOnInsert": {
+                        "user_id": user_id,
+                        "identifier": ident,
+                    },
+                },
+                upsert=True,
+            )
+            for ident, mtime, recipe_dict in entries
+        ]
+        await self.recipe_cache_collection.bulk_write(ops, ordered=False)
+
+    async def delete_recipe_cache_entries(
+        self, user_id: str, identifiers: List[str]
+    ) -> None:
+        if not identifiers:
+            return
+        await self.recipe_cache_collection.delete_many(
+            {"user_id": user_id, "identifier": {"$in": identifiers}}
         )
 

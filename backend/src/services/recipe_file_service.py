@@ -43,6 +43,7 @@ import os
 import re
 import threading
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, List, Optional, Protocol, Tuple
@@ -475,45 +476,108 @@ def parse_recipe(source: SourceFile) -> Optional[Recipe]:
 # Service
 # ---------------------------------------------------------------------------
 
+# Cap on parallel reads from a RecipeSource. Dropbox handles many
+# concurrent calls happily; the number is mainly chosen so we don't
+# create a huge thread pool when the user has hundreds of recipes.
+_MAX_PARALLEL_READS = int(os.getenv("RECIPE_PARALLEL_READS", "16"))
+
+
 class RecipeFileService:
-    """Caches parsed recipes per-file, invalidated by mtime."""
+    """Caches parsed recipes per-file, invalidated by mtime.
+
+    The cache is held in memory; an external persistence layer can call
+    `hydrate()` once at startup and `take_pending()` after each refresh
+    to mirror the cache to durable storage. The service itself doesn't
+    talk to a database — it just exposes the dirty-tracking hooks.
+    """
 
     def __init__(self, source: RecipeSource):
         self.source = source
         self._lock = threading.Lock()
         self._cache: dict[str, Tuple[float, Optional[Recipe]]] = {}
+        # Pending writes for an external persistent store. `_dirty` holds
+        # entries that need to be upserted, `_removed` holds identifiers
+        # that need to be deleted. Routes drain these via take_pending().
+        self._dirty: dict[str, Tuple[float, Optional[Recipe]]] = {}
+        self._removed: set[str] = set()
+
+    def _read_and_parse(self, meta: FileMeta) -> Optional[Recipe]:
+        text = self.source.read_file(meta.identifier)
+        return parse_recipe(
+            SourceFile(
+                identifier=meta.identifier,
+                text=text,
+                mtime=meta.mtime,
+            )
+        )
 
     def _refresh(self) -> List[Recipe]:
-        recipes: List[Recipe] = []
+        # Listing is one Dropbox call; do it without the lock so concurrent
+        # callers don't serialize behind each other.
+        metas = list(self.source.list_files())
+
         with self._lock:
-            seen: set[str] = set()
-            for meta in self.source.list_files():
-                seen.add(meta.identifier)
-                cached = self._cache.get(meta.identifier)
-                if cached and cached[0] == meta.mtime:
-                    # Cache hit — skip the expensive read entirely.
-                    if cached[1] is not None:
-                        recipes.append(cached[1])
-                    continue
-                try:
-                    text = self.source.read_file(meta.identifier)
-                    sf = SourceFile(
-                        identifier=meta.identifier,
-                        text=text,
-                        mtime=meta.mtime,
-                    )
-                    recipe = parse_recipe(sf)
-                except Exception as exc:
-                    log.exception("Failed to parse %s: %s", meta.identifier, exc)
-                    recipe = None
-                self._cache[meta.identifier] = (meta.mtime, recipe)
-                if recipe is not None:
-                    recipes.append(recipe)
-            # Drop cache entries for files that no longer exist.
-            for stale in list(self._cache.keys()):
-                if stale not in seen:
-                    self._cache.pop(stale, None)
+            cache_snapshot = dict(self._cache)
+
+        stale: List[FileMeta] = []
+        for meta in metas:
+            cached = cache_snapshot.get(meta.identifier)
+            if not cached or cached[0] != meta.mtime:
+                stale.append(meta)
+
+        # Download + parse stale files in parallel. Each Dropbox call is
+        # mostly network wait, so threads give a real speed-up despite
+        # the GIL.
+        fresh: dict[str, Tuple[float, Optional[Recipe]]] = {}
+        if stale:
+            workers = min(_MAX_PARALLEL_READS, len(stale))
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                futures = {pool.submit(self._read_and_parse, m): m for m in stale}
+                for fut in as_completed(futures):
+                    meta = futures[fut]
+                    try:
+                        recipe = fut.result()
+                    except Exception as exc:
+                        log.exception("Failed to parse %s: %s", meta.identifier, exc)
+                        recipe = None
+                    fresh[meta.identifier] = (meta.mtime, recipe)
+
+        seen = {meta.identifier for meta in metas}
+        with self._lock:
+            for ident, entry in fresh.items():
+                self._cache[ident] = entry
+                self._dirty[ident] = entry
+                self._removed.discard(ident)
+            for stale_id in list(self._cache.keys()):
+                if stale_id not in seen:
+                    self._cache.pop(stale_id, None)
+                    self._dirty.pop(stale_id, None)
+                    self._removed.add(stale_id)
+            recipes = [
+                entry[1]
+                for meta in metas
+                if (entry := self._cache.get(meta.identifier)) and entry[1] is not None
+            ]
         return recipes
+
+    def hydrate(self, entries: dict[str, Tuple[float, Optional[Recipe]]]) -> None:
+        """Populate the in-memory cache from a persisted snapshot. Call
+        before the first refresh; entries don't count as dirty (they're
+        already in the persistent store)."""
+        with self._lock:
+            self._cache.update(entries)
+
+    def take_pending(
+        self,
+    ) -> Tuple[dict[str, Tuple[float, Optional[Recipe]]], set[str]]:
+        """Return and clear pending upserts and deletions. Caller is
+        expected to flush these to the persistent store."""
+        with self._lock:
+            dirty = self._dirty
+            removed = self._removed
+            self._dirty = {}
+            self._removed = set()
+        return dirty, removed
 
     def get_recipes(self) -> List[Recipe]:
         return self._refresh()
