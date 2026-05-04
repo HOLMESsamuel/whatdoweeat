@@ -11,9 +11,11 @@ Claude always updates this file when something changes.
 - **Backend**: FastAPI + motor (async MongoDB). Auth0 JWT verified via JWKS
   in `backend/src/services/auth_service.py`.
 - **Persistence**: MongoDB `whatdoweeat`. Collections: `users`,
-  `grocery_lists`, `dropbox_credentials`, `meal_plans`. Recipes are NOT in
-  Mongo — they are parsed from markdown files in the user's Dropbox by
-  `RecipeFileService`.
+  `grocery_lists`, `dropbox_credentials`, `meal_plans`, `recipe_cache`.
+  Recipes themselves are NOT in Mongo — they're parsed from markdown
+  files in the user's Dropbox by `RecipeFileService`. `recipe_cache`
+  only persists the parse cache so a backend restart doesn't have to
+  re-download every file.
 - **Realtime**: per-grocery-list WebSocket at `/ws/{list_id}`. The
   `ConnectionManager` is a singleton; `db_service.py` mutations broadcast
   through it from `grocery_list_routes.py` so other clients refetch.
@@ -46,6 +48,25 @@ Claude always updates this file when something changes.
 - `_user_services` cache in `recipe_routes.py` holds one `RecipeFileService`
   per user. Call `invalidate_user_recipe_cache(user_id)` after credential
   or path changes (the OAuth callback does this).
+- The Dropbox SDK is synchronous, so the `/recipes` and `/recipe/{id}`
+  routes wrap `service.get_recipes()` / `service.get_recipe()` in
+  `asyncio.to_thread` — without that the event loop blocks during a
+  cold load and every other request stalls. Inside `_refresh`,
+  stale-file downloads run through a `ThreadPoolExecutor` (size from
+  `RECIPE_PARALLEL_READS`, default 16). The lock is only held for cache
+  reads/writes, never during network I/O.
+- Two-tier cache: in-memory in `RecipeFileService._cache`, mirrored to
+  Mongo `recipe_cache` (one doc per `(user_id, identifier)` with
+  `mtime` + serialized `recipe`). Per-user routes call
+  `_hydrate_from_persistent_cache` once when building a service, and
+  `_flush_pending` after each request. `_refresh` tracks dirty/removed
+  entries internally; routes drain them via `take_pending()`. Freshness
+  still hinges on `files_list_folder` running on every request — that's
+  what catches Obsidian edits, so don't add a TTL there. Per-file
+  invalidation is mtime equality, so any change in `client_modified`
+  busts the cache. Mongo persistence is best-effort: failures log but
+  don't fail the request. Fallback (single-tenant) routes don't use the
+  persistent cache.
 - The recipe model includes `groceries: List[Grocery]` already populated
   by the parser, including a sub-group passed via `description` as
   `"Recipe · Subgroup"`. RecipeDetail.vue parses that with `groupOf`.
