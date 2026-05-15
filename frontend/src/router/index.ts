@@ -7,6 +7,7 @@ import ListContainer from "../components/ListContainer.vue";
 import GroceryList from "../components/GroceryList.vue";
 import Recipe from "../views/Recipe.vue";
 import RecipeDetail from "../components/RecipeDetail.vue";
+import Planner from "../views/Planner.vue";
 
 export function createRouter(app: App): Router {
   return createVueRouter({
@@ -44,6 +45,12 @@ export function createRouter(app: App): Router {
         path: "/recipes/:id",
         name: "recipe-detail",
         component: RecipeDetail,
+        beforeEnter: createAuthGuard(app)
+      },
+      {
+        path: "/planner",
+        name: "planner",
+        component: Planner,
         beforeEnter: createAuthGuard(app)
       }
     ],

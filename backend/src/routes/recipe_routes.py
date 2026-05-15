@@ -21,6 +21,7 @@ Obsidian.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import threading
@@ -28,6 +29,7 @@ from typing import Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 
+from ..models.recipe import Recipe
 from ..services.auth_service import CurrentUser, require_user_id
 from ..services.crypto_service import get_token_encryption
 from ..services.db_service import DBService
@@ -86,7 +88,57 @@ async def _build_user_service(user_id: str) -> Optional[RecipeFileService]:
         refresh_token=refresh_token,
         recipes_path=creds.recipes_path,
     )
-    return RecipeFileService(source)
+    service = RecipeFileService(source)
+    await _hydrate_from_persistent_cache(user_id, service)
+    return service
+
+
+async def _hydrate_from_persistent_cache(
+    user_id: str, service: RecipeFileService
+) -> None:
+    """Load any previously-parsed recipes for this user from Mongo so the
+    first request after a backend restart doesn't re-download every file.
+    The mtime-based freshness check in `_refresh` will still catch any
+    edits made while the backend was down."""
+    docs = await db.get_recipe_cache(user_id)
+    if not docs:
+        return
+    entries: dict = {}
+    for doc in docs:
+        try:
+            recipe_dict = doc.get("recipe")
+            recipe = Recipe(**recipe_dict) if recipe_dict else None
+            entries[doc["identifier"]] = (float(doc["mtime"]), recipe)
+        except Exception:
+            # A malformed cache row shouldn't poison the whole hydrate;
+            # the file will just be re-fetched on next refresh.
+            log.exception(
+                "Skipping malformed recipe_cache row for user %s: %s",
+                user_id,
+                doc.get("identifier"),
+            )
+    service.hydrate(entries)
+
+
+async def _flush_pending(user_id: str, service: RecipeFileService) -> None:
+    """Mirror any in-memory cache changes from the most recent refresh to
+    the persistent cache. Empty-pending is the common case (warm cache,
+    nothing changed) and short-circuits cheaply."""
+    dirty, removed = service.take_pending()
+    if not dirty and not removed:
+        return
+    upserts = [
+        (ident, mtime, (recipe.dict() if recipe is not None else None))
+        for ident, (mtime, recipe) in dirty.items()
+    ]
+    try:
+        await db.upsert_recipe_cache_entries(user_id, upserts)
+        await db.delete_recipe_cache_entries(user_id, list(removed))
+    except Exception:
+        # Persistence is best-effort: a Mongo blip shouldn't fail the
+        # request. The in-memory cache still has the data; we'll retry on
+        # the next refresh that produces dirty entries.
+        log.exception("Failed to flush recipe_cache for user %s", user_id)
 
 
 async def _get_user_service(user_id: str) -> Optional[RecipeFileService]:
@@ -119,7 +171,11 @@ async def get_user_recipes(
     service = await _get_user_service(user_id)
     if service is None:
         return []
-    return service.get_recipes()
+    # The Dropbox SDK is synchronous; run it off the event loop so other
+    # requests aren't starved while recipes load.
+    recipes = await asyncio.to_thread(service.get_recipes)
+    await _flush_pending(user_id, service)
+    return recipes
 
 
 @router.get("/user/{user_id}/recipe/{recipe_id}", status_code=200)
@@ -133,7 +189,8 @@ async def get_user_recipe(
     if service is None:
         response.status_code = status.HTTP_204_NO_CONTENT
         return None
-    recipe = service.get_recipe(recipe_id)
+    recipe = await asyncio.to_thread(service.get_recipe, recipe_id)
+    await _flush_pending(user_id, service)
     if recipe is None:
         response.status_code = status.HTTP_204_NO_CONTENT
     return recipe
@@ -169,7 +226,7 @@ async def get_recipes_fallback():
     service = _get_fallback_service()
     if service is None:
         return []
-    return service.get_recipes()
+    return await asyncio.to_thread(service.get_recipes)
 
 
 @router.get("/recipe/{recipe_id}", status_code=200)
@@ -178,7 +235,7 @@ async def get_recipe_fallback(recipe_id: str, response: Response):
     if service is None:
         response.status_code = status.HTTP_204_NO_CONTENT
         return None
-    recipe = service.get_recipe(recipe_id)
+    recipe = await asyncio.to_thread(service.get_recipe, recipe_id)
     if recipe is None:
         response.status_code = status.HTTP_204_NO_CONTENT
     return recipe
