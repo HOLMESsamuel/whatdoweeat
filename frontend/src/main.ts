@@ -40,6 +40,10 @@ const auth0 = createAuth0({
   },
   cacheLocation: 'localstorage',
   useRefreshTokens: true,
+}, {
+  // `code`/`state` on a backend URL belong to the Dropbox OAuth flow, not
+  // Auth0; handling them here fails with "Invalid state".
+  skipRedirectCallback: window.location.pathname.startsWith('/api/'),
 });
 
 // Initialise the singleton axios client so any component can `import

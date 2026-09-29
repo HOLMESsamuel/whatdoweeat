@@ -201,6 +201,14 @@ Claude always updates this file when something changes.
   `typeof d._id === 'string' ? d._id : String(d._id)`.
 - `start_dev.sh` does `kill_port 27017` — if you have a personal mongod
   running on 27017 outside this project, it'll die.
+- The PWA service worker (`vite-plugin-pwa`, generateSW) serves the
+  cached SPA shell for every navigation unless the URL matches
+  `workbox.navigateFallbackDenylist` in `vite.config.ts`. `/api/` is on
+  that list; without it the Dropbox OAuth redirect to
+  `/api/dropbox/callback` never reached the backend and Auth0 then
+  choked on the Dropbox `code`/`state` ("Invalid state"). Any new
+  backend URL the browser navigates to must live under `/api/`.
+  `createAuth0` also gets `skipRedirectCallback` for `/api/` paths.
 - Prod certbot used `--force-renewal`, so every deploy issued a new
   cert and hit Let's Encrypt's 5-certs-per-week limit (certbot container
   exited 1). It now uses `--keep-until-expiring`.
