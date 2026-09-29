@@ -7,6 +7,12 @@ export default defineConfig({
     vue(), 
     VitePWA({ 
       registerType: 'autoUpdate',
+      workbox: {
+        // Without this the SW answers navigations to backend URLs (e.g. the
+        // Dropbox OAuth callback) with the cached SPA shell, so the request
+        // never reaches the server.
+        navigateFallbackDenylist: [/^\/api\//],
+      },
       manifest: {
         name: 'Whatdoweeat',
         short_name: 'Whatdoweeat',
