@@ -75,6 +75,38 @@ class SourceFile:
     mtime: float
 
 
+class RecipeSourceError(RuntimeError):
+    """Listing the recipe folder failed (network, auth, ...). Raised
+    instead of returning an empty listing so a transient failure doesn't
+    look like "every recipe was deleted" and wipe the cache."""
+
+
+class RecipeSourceAuthError(RecipeSourceError):
+    """The stored Dropbox token was revoked or expired."""
+
+
+class RecipeFolderNotFound(RecipeSourceError):
+    def __init__(self, path: str):
+        super().__init__(f"Recipe folder not found: {path or '/'}")
+        self.path = path
+
+
+def normalize_dropbox_path(path: str) -> str:
+    """Canonical Dropbox folder path: leading "/", no trailing "/". The
+    Dropbox root is the empty string, not "/"."""
+    path = (path or "").strip().replace("\\", "/")
+    while "//" in path:
+        path = path.replace("//", "/")
+    path = path.strip("/")
+    return f"/{path}" if path else ""
+
+
+@dataclass
+class FolderEntry:
+    name: str
+    path: str
+
+
 class RecipeSource(Protocol):
     """Two-step interface so we don't pay to download every file on each
     request — `list_files()` returns cheap metadata, `read_file()` is only
@@ -94,9 +126,8 @@ class LocalFolderRecipeSource:
         self.root = Path(root)
 
     def list_files(self) -> Iterable[FileMeta]:
-        if not self.root.exists():
-            log.warning("Recipe folder does not exist: %s", self.root)
-            return
+        if not self.root.is_dir():
+            raise RecipeFolderNotFound(str(self.root))
         for path in sorted(self.root.glob("*.md")):
             try:
                 stat = path.stat()
@@ -143,40 +174,64 @@ class DropboxRecipeSource:
             app_secret=app_secret,
             oauth2_refresh_token=refresh_token,
         )
-        # Dropbox paths must start with "/" and not have a trailing slash.
-        if not recipes_path.startswith("/"):
-            recipes_path = "/" + recipes_path
-        self.recipes_path = recipes_path.rstrip("/")
+        self.recipes_path = normalize_dropbox_path(recipes_path)
+
+    def _list_entries(self, path: str) -> List:
+        """Every entry directly inside `path`, following pagination.
+        Raises RecipeFolderNotFound / RecipeSourceError on failure."""
+        from dropbox.exceptions import ApiError, AuthError
+
+        try:
+            result = self._client.files_list_folder(path)
+            entries = list(result.entries)
+            while result.has_more:
+                result = self._client.files_list_folder_continue(result.cursor)
+                entries.extend(result.entries)
+        except AuthError as exc:
+            raise RecipeSourceAuthError(f"Dropbox auth failed: {exc}") from exc
+        except ApiError as exc:
+            err = exc.error
+            if (
+                getattr(err, "is_path", lambda: False)()
+                and err.get_path().is_not_found()
+            ):
+                raise RecipeFolderNotFound(path) from exc
+            raise RecipeSourceError(f"Dropbox listing failed: {exc}") from exc
+        except Exception as exc:  # pragma: no cover - network-dependent
+            raise RecipeSourceError(f"Dropbox listing failed: {exc}") from exc
+        return entries
 
     def list_files(self) -> Iterable[FileMeta]:
         from dropbox import files as dbx_files
 
-        try:
-            result = self._client.files_list_folder(self.recipes_path)
-        except Exception as exc:  # pragma: no cover - network-dependent
-            log.error("Dropbox files_list_folder failed: %s", exc)
-            return
-        while True:
-            for entry in result.entries:
-                if not isinstance(entry, dbx_files.FileMetadata):
-                    continue
-                if not entry.name.lower().endswith(".md"):
-                    continue
-                # `client_modified` mirrors the file's mtime as written by
-                # the editing client (Obsidian on phone/desktop). Use that
-                # rather than `server_modified` so the mtime matches what
-                # local dev would see.
-                yield FileMeta(
+        out: List[FileMeta] = []
+        for entry in self._list_entries(self.recipes_path):
+            if not isinstance(entry, dbx_files.FileMetadata):
+                continue
+            if not entry.name.lower().endswith(".md"):
+                continue
+            # `client_modified` mirrors the file's mtime as written by
+            # the editing client (Obsidian on phone/desktop). Use that
+            # rather than `server_modified` so the mtime matches what
+            # local dev would see.
+            out.append(
+                FileMeta(
                     identifier=entry.name,
                     mtime=entry.client_modified.timestamp(),
                 )
-            if not result.has_more:
-                break
-            try:
-                result = self._client.files_list_folder_continue(result.cursor)
-            except Exception as exc:  # pragma: no cover
-                log.error("Dropbox files_list_folder_continue failed: %s", exc)
-                return
+            )
+        return out
+
+    def list_subfolders(self, path: str) -> List[FolderEntry]:
+        """Folders directly inside `path` — backs the folder picker."""
+        from dropbox import files as dbx_files
+
+        folders = [
+            FolderEntry(name=e.name, path=e.path_display)
+            for e in self._list_entries(normalize_dropbox_path(path))
+            if isinstance(e, dbx_files.FolderMetadata)
+        ]
+        return sorted(folders, key=lambda f: f.name.lower())
 
     def read_file(self, identifier: str) -> str:
         path = f"{self.recipes_path}/{identifier}"
@@ -494,6 +549,10 @@ class RecipeFileService:
     def __init__(self, source: RecipeSource):
         self.source = source
         self._lock = threading.Lock()
+        # Serializes whole refreshes so two concurrent cold loads don't
+        # both download every file; the second one waits and then only
+        # pays for the listing.
+        self._refresh_lock = threading.Lock()
         self._cache: dict[str, Tuple[float, Optional[Recipe]]] = {}
         # Pending writes for an external persistent store. `_dirty` holds
         # entries that need to be upserted, `_removed` holds identifiers
@@ -512,8 +571,11 @@ class RecipeFileService:
         )
 
     def _refresh(self) -> List[Recipe]:
-        # Listing is one Dropbox call; do it without the lock so concurrent
-        # callers don't serialize behind each other.
+        with self._refresh_lock:
+            return self._refresh_locked()
+
+    def _refresh_locked(self) -> List[Recipe]:
+        # Raises on listing failure, before the cache is touched.
         metas = list(self.source.list_files())
 
         with self._lock:

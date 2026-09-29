@@ -71,7 +71,9 @@ Once the stack is up, every user goes through their own one-click flow:
 - Adjust the path field if their recipes folder isn't at the default.
 - Click *Connect Dropbox* → Dropbox auth page → click Allow → bounced
   back to `/recipes` with their recipes loaded.
-- They can disconnect at any time from the *Profile* page.
+- They can change the folder later with *Change folder* (Recipes page
+  or Profile), which opens a Dropbox folder browser, and disconnect at
+  any time from the *Profile* page.
 
 ## How updates flow
 

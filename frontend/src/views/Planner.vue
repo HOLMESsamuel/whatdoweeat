@@ -125,6 +125,7 @@
 import { defineComponent, ref, computed, onMounted, watch } from 'vue';
 import { useAuth0 } from '@auth0/auth0-vue';
 import { getApi } from '../services/api';
+import { cachedRecipes, loadRecipes } from '../services/recipes';
 import RecipeList, { Recipe, RECIPE_DRAG_MIME } from '../components/RecipeList.vue';
 
 // Recipe is re-exported by RecipeList; use it via the import above.
@@ -255,14 +256,14 @@ export default defineComponent({
     };
 
     const fetchRecipes = async () => {
-      loadingRecipes.value = true;
+      const cached = cachedRecipes(userId);
+      if (cached) recipes.value = cached;
+      loadingRecipes.value = !cached;
       try {
-        const { data } = await api.get(`/user/${userPath()}/recipes`);
-        recipes.value = data || [];
-        dropboxConnected.value = true;
+        recipes.value = await loadRecipes(userId);
       } catch (err) {
         console.error('Could not fetch recipes', err);
-        recipes.value = [];
+        if (!cached) recipes.value = [];
       } finally {
         loadingRecipes.value = false;
       }
@@ -526,11 +527,13 @@ export default defineComponent({
       if (!user.value?.sub) return;
       userId = user.value.sub;
       loading.value = true;
-      await fetchDropboxStatus();
+      // The recipes endpoint returns [] when Dropbox isn't connected, so
+      // it can run alongside the status check instead of after it.
       await Promise.all([
+        fetchDropboxStatus(),
         fetchPlan(),
         fetchGroceryLists(),
-        dropboxConnected.value ? fetchRecipes() : Promise.resolve(),
+        fetchRecipes(),
       ]);
       loading.value = false;
     };

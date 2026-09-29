@@ -3,6 +3,8 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
+DEFAULT_RECIPES_PATH = "/ideaverse/Recettes/recette-templated"
+
 
 class DropboxCredential(BaseModel):
     """Per-user Dropbox connection.
@@ -14,7 +16,7 @@ class DropboxCredential(BaseModel):
 
     user_id: str
     encrypted_refresh_token: str
-    recipes_path: str = "/ideaverse/Recettes/recette-templated"
+    recipes_path: str = DEFAULT_RECIPES_PATH
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
