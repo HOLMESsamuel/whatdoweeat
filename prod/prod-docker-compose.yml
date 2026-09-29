@@ -64,8 +64,9 @@ services:
   # --force-renewal: every `up` would issue a new cert and hit Let's
   # Encrypt's 5-per-week limit. The container exits after the run;
   # the deploy.restart_policy.delay re-creates it on schedule when
-  # running under docker swarm. With plain `docker compose`, you'll want to invoke this manually or via cron
-  # (e.g. add a line in update-script.sh).
+  # running under docker swarm. With plain `docker compose`, you'll
+  # want to invoke this manually or via cron (e.g. add a line in
+  # update-script.sh).
   certbot:
     image: certbot/certbot:latest
     volumes:
