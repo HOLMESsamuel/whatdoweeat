@@ -170,3 +170,6 @@ Claude always updates this file when something changes.
   `typeof d._id === 'string' ? d._id : String(d._id)`.
 - `start_dev.sh` does `kill_port 27017` — if you have a personal mongod
   running on 27017 outside this project, it'll die.
+- Prod certbot used `--force-renewal`, so every deploy issued a new
+  cert and hit Let's Encrypt's 5-certs-per-week limit (certbot container
+  exited 1). It now uses `--keep-until-expiring`.
