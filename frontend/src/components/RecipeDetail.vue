@@ -60,6 +60,7 @@ import { defineComponent, ref, onMounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuth0 } from '@auth0/auth0-vue';
 import { getApi } from '../services/api';
+import { cachedRecipe } from '../services/recipes';
 
 interface Grocery {
   id: string;
@@ -96,6 +97,9 @@ export default defineComponent({
         return;
       }
       const userPath = encodeURIComponent(sub);
+      // Render the copy from the recipe list straight away, then refresh.
+      const cached = cachedRecipe(sub, String(route.params.id));
+      if (cached) recipe.value = cached as Recipe;
       try {
         const response = await api.get(
           `/user/${userPath}/recipe/${route.params.id}`
@@ -104,13 +108,14 @@ export default defineComponent({
         // recipe id doesn't match anything. Treat that as an error so we
         // don't sit on the loading state forever.
         if (response.status === 204 || !response.data || !response.data.id) {
+          recipe.value = null;
           error.value = true;
           return;
         }
         recipe.value = response.data;
       } catch (err) {
         console.error('Error fetching recipe:', err);
-        error.value = true;
+        if (!recipe.value) error.value = true;
       }
     };
 

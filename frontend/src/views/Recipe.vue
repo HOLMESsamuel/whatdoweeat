@@ -4,8 +4,7 @@
       <h1>Recipes</h1>
       <p class="hint">
         Recipes are read from your Obsidian vault. To add or edit a recipe,
-        edit the markdown file in
-        <code>recette-templated/</code>.
+        edit its markdown file in your recipes folder on Dropbox.
       </p>
     </div>
 
@@ -45,9 +44,4 @@ export default defineComponent({
   margin: 0;
 }
 
-.hint code {
-  background-color: #f1f1f1;
-  padding: 2px 6px;
-  border-radius: 3px;
-}
 </style>

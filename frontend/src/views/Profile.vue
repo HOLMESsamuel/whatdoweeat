@@ -21,11 +21,23 @@
       <div v-else-if="status.connected">
         <p>
           Connected. Reading recipes from
-          <code>{{ status.recipes_path }}</code>.
+          <code>{{ status.recipes_path || '/' }}</code>.
         </p>
-        <button @click="disconnect" :disabled="busy" class="danger-btn">
-          {{ busy ? 'Disconnecting…' : 'Disconnect Dropbox' }}
-        </button>
+        <dropbox-folder-picker
+          v-if="pickingFolder"
+          :user-id="user?.sub || ''"
+          :initial-path="status.recipes_path || ''"
+          @saved="onFolderSaved"
+          @cancel="pickingFolder = false"
+        />
+        <div v-else class="buttons">
+          <button @click="pickingFolder = true" class="secondary-btn">
+            Change folder
+          </button>
+          <button @click="disconnect" :disabled="busy" class="danger-btn">
+            {{ busy ? 'Disconnecting…' : 'Disconnect Dropbox' }}
+          </button>
+        </div>
         <p v-if="message" class="message">{{ message }}</p>
       </div>
       <div v-else>
@@ -46,9 +58,12 @@
 import { defineComponent, ref, onMounted, watch } from 'vue';
 import { useAuth0 } from '@auth0/auth0-vue';
 import { getApi } from '../services/api';
+import { clearRecipeCache } from '../services/recipes';
+import DropboxFolderPicker from '../components/DropboxFolderPicker.vue';
 
 export default defineComponent({
   name: "profile-view",
+  components: { DropboxFolderPicker },
   setup() {
     const { user, isAuthenticated, isLoading } = useAuth0();
     const api = getApi();
@@ -59,6 +74,7 @@ export default defineComponent({
       connected: false,
     });
     const message = ref('');
+    const pickingFolder = ref(false);
 
     let userPath = '';
 
@@ -83,6 +99,7 @@ export default defineComponent({
       message.value = '';
       try {
         await api.delete(`/user/${userPath}/dropbox`);
+        clearRecipeCache();
         status.value = { connected: false };
         message.value = 'Disconnected. Recipes will no longer sync.';
       } catch (err: any) {
@@ -91,6 +108,12 @@ export default defineComponent({
       } finally {
         busy.value = false;
       }
+    };
+
+    const onFolderSaved = (path: string) => {
+      status.value = { ...status.value, recipes_path: path };
+      pickingFolder.value = false;
+      message.value = 'Recipe folder updated.';
     };
 
     onMounted(() => {
@@ -106,7 +129,16 @@ export default defineComponent({
       }
     });
 
-    return { user, status, loading, busy, message, disconnect };
+    return {
+      user,
+      status,
+      loading,
+      busy,
+      message,
+      pickingFolder,
+      disconnect,
+      onFolderSaved,
+    };
   }
 });
 </script>
@@ -128,6 +160,25 @@ export default defineComponent({
   background-color: #e9ecef;
   padding: 2px 6px;
   border-radius: 3px;
+}
+
+.dropbox-section code {
+  overflow-wrap: anywhere;
+}
+
+.buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.secondary-btn {
+  background-color: white;
+  color: #699051;
+  border: 1px solid #699051;
+  border-radius: 4px;
+  padding: 8px 16px;
+  cursor: pointer;
 }
 
 .danger-btn {
