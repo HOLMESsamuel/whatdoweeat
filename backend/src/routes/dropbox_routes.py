@@ -10,7 +10,8 @@ Flow:
      encrypt it, store {user_id, encrypted_token, recipes_path}, then
      redirect the browser back to the frontend's /recipes page.
   4. GET /user/{user_id}/dropbox/status reports connection state;
-     PUT /user/{user_id}/dropbox/path updates the path;
+     GET /user/{user_id}/dropbox/folders lists subfolders (folder picker);
+     PUT /user/{user_id}/dropbox/path validates + updates the path;
      DELETE /user/{user_id}/dropbox revokes + deletes.
 
 Routes are guarded by Auth0 JWT — the path's user_id must match the
@@ -21,15 +22,16 @@ authenticate it via the signed state instead).
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
-from ..models.dropbox_credential import DropboxStatus
+from ..models.dropbox_credential import DEFAULT_RECIPES_PATH, DropboxStatus
 from ..services.auth_service import (
     CurrentUser,
     require_user_id,
@@ -43,6 +45,16 @@ from ..services.dropbox_oauth_service import (
     exchange_code_for_tokens,
     revoke_refresh_token,
     _frontend_url,
+)
+from ..services.recipe_file_service import (
+    RecipeFolderNotFound,
+    RecipeSourceError,
+    normalize_dropbox_path,
+)
+from .recipe_routes import (
+    source_error_to_http,
+    build_user_dropbox_source,
+    reset_user_recipe_cache,
 )
 
 log = logging.getLogger(__name__)
@@ -67,6 +79,33 @@ class UpdatePathRequest(BaseModel):
     recipes_path: str
 
 
+class FolderItem(BaseModel):
+    name: str
+    path: str
+
+
+class FoldersResponse(BaseModel):
+    path: str
+    folders: List[FolderItem]
+
+
+async def _list_subfolders_or_raise(user_id: str, path: str) -> List[FolderItem]:
+    source = await build_user_dropbox_source(user_id)
+    if source is None:
+        raise HTTPException(
+            status_code=404, detail="No Dropbox connection for this user"
+        )
+    try:
+        entries = await asyncio.to_thread(source.list_subfolders, path)
+    except RecipeFolderNotFound:
+        raise HTTPException(
+            status_code=404, detail=f"Folder not found in Dropbox: {path or '/'}"
+        )
+    except RecipeSourceError as exc:
+        raise source_error_to_http(exc)
+    return [FolderItem(name=e.name, path=e.path) for e in entries]
+
+
 @router.get(
     "/user/{user_id}/dropbox/auth-url",
     response_model=AuthUrlResponse,
@@ -74,12 +113,14 @@ class UpdatePathRequest(BaseModel):
 async def get_auth_url(
     user_id: str,
     recipes_path: str = Query(
-        default="/ideaverse/Recettes/recette-templated",
+        default=DEFAULT_RECIPES_PATH,
         description="Folder inside the user's Dropbox to read recipes from.",
     ),
     user: CurrentUser = Depends(require_user_id),
 ):
-    state = encode_state(user_id=user_id, recipes_path=recipes_path)
+    state = encode_state(
+        user_id=user_id, recipes_path=normalize_dropbox_path(recipes_path)
+    )
     return AuthUrlResponse(url=build_authorize_url(state))
 
 
@@ -130,11 +171,9 @@ async def dropbox_callback(
         recipes_path=decoded.recipes_path,
     )
 
-    # Tell the in-memory recipe-service cache to drop this user so the
-    # next request rebuilds with the fresh credentials.
-    from .recipe_routes import invalidate_user_recipe_cache  # local import
-
-    invalidate_user_recipe_cache(decoded.user_id)
+    # Could be a different account or folder than before — drop both
+    # cache tiers so nothing from the old one leaks through.
+    await reset_user_recipe_cache(decoded.user_id)
 
     return RedirectResponse(
         url=f"{frontend}/#/recipes?dropbox_connected=1",
@@ -160,25 +199,41 @@ async def get_status(
     )
 
 
+@router.get(
+    "/user/{user_id}/dropbox/folders",
+    response_model=FoldersResponse,
+)
+async def list_folders(
+    user_id: str,
+    path: str = Query(default="", description="Folder to list; root if empty."),
+    user: CurrentUser = Depends(require_user_id),
+):
+    path = normalize_dropbox_path(path)
+    folders = await _list_subfolders_or_raise(user_id, path)
+    return FoldersResponse(path=path, folders=folders)
+
+
 @router.put("/user/{user_id}/dropbox/path")
 async def update_path(
     user_id: str,
     request: UpdatePathRequest,
     user: CurrentUser = Depends(require_user_id),
 ):
+    recipes_path = normalize_dropbox_path(request.recipes_path)
+    # Fails with 404 if the folder doesn't exist, so a typo can't
+    # silently leave the user with an empty recipe list.
+    await _list_subfolders_or_raise(user_id, recipes_path)
     ok = await db.update_user_dropbox_recipes_path(
         user_id=user_id,
-        recipes_path=request.recipes_path,
+        recipes_path=recipes_path,
     )
     if not ok:
         raise HTTPException(
             status_code=404,
             detail="No Dropbox connection for this user",
         )
-    from .recipe_routes import invalidate_user_recipe_cache
-
-    invalidate_user_recipe_cache(user_id)
-    return {"recipes_path": request.recipes_path}
+    await reset_user_recipe_cache(user_id)
+    return {"recipes_path": recipes_path}
 
 
 @router.delete("/user/{user_id}/dropbox")
@@ -200,7 +255,5 @@ async def disconnect(
         log.warning("Could not revoke Dropbox token on disconnect: %s", exc)
 
     await db.delete_user_dropbox_credentials(user_id)
-    from .recipe_routes import invalidate_user_recipe_cache
-
-    invalidate_user_recipe_cache(user_id)
+    await reset_user_recipe_cache(user_id)
     return {"deleted": True}

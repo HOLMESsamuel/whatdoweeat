@@ -36,6 +36,9 @@ from ..services.db_service import DBService
 from ..services.recipe_file_service import (
     DropboxRecipeSource,
     RecipeFileService,
+    RecipeFolderNotFound,
+    RecipeSourceAuthError,
+    RecipeSourceError,
     build_default_service,
 )
 
@@ -60,14 +63,29 @@ _user_services_lock = threading.Lock()
 
 
 def invalidate_user_recipe_cache(user_id: str) -> None:
-    """Drop a user's cached RecipeFileService — called by the OAuth
-    callback / disconnect / path-change routes so the next request
-    picks up new credentials."""
+    """Drop a user's cached RecipeFileService so the next request picks
+    up new credentials."""
     with _user_services_lock:
         _user_services.pop(user_id, None)
 
 
-async def _build_user_service(user_id: str) -> Optional[RecipeFileService]:
+async def reset_user_recipe_cache(user_id: str) -> None:
+    """Drop both cache tiers for a user. Needed whenever the account or
+    folder changes: cache keys are bare filenames, so a same-named file
+    with the same mtime in the new folder would otherwise be served
+    from the old folder's parse."""
+    invalidate_user_recipe_cache(user_id)
+    try:
+        await db.delete_recipe_cache_for_user(user_id)
+    except Exception:
+        log.exception("Failed to purge recipe_cache for user %s", user_id)
+
+
+async def build_user_dropbox_source(
+    user_id: str, recipes_path: Optional[str] = None
+) -> Optional[DropboxRecipeSource]:
+    """Dropbox source for a connected user, or None if they aren't
+    connected (or their token can't be decrypted)."""
     creds = await db.get_user_dropbox_credentials(user_id)
     if creds is None:
         return None
@@ -82,12 +100,18 @@ async def _build_user_service(user_id: str) -> Optional[RecipeFileService]:
             user_id,
         )
         return None
-    source = DropboxRecipeSource(
+    return DropboxRecipeSource(
         app_key=os.environ["DROPBOX_APP_KEY"],
         app_secret=os.environ["DROPBOX_APP_SECRET"],
         refresh_token=refresh_token,
-        recipes_path=creds.recipes_path,
+        recipes_path=recipes_path if recipes_path is not None else creds.recipes_path,
     )
+
+
+async def _build_user_service(user_id: str) -> Optional[RecipeFileService]:
+    source = await build_user_dropbox_source(user_id)
+    if source is None:
+        return None
     service = RecipeFileService(source)
     await _hydrate_from_persistent_cache(user_id, service)
     return service
@@ -127,6 +151,12 @@ async def _flush_pending(user_id: str, service: RecipeFileService) -> None:
     dirty, removed = service.take_pending()
     if not dirty and not removed:
         return
+    with _user_services_lock:
+        current = _user_services.get(user_id)
+    if current is not service:
+        # The cache was reset (path change / reconnect) while this request
+        # was in flight; its results belong to the old folder.
+        return
     upserts = [
         (ident, mtime, (recipe.dict() if recipe is not None else None))
         for ident, (mtime, recipe) in dirty.items()
@@ -159,6 +189,23 @@ async def _get_user_service(user_id: str) -> Optional[RecipeFileService]:
     return service
 
 
+def source_error_to_http(exc: RecipeSourceError) -> HTTPException:
+    if isinstance(exc, RecipeFolderNotFound):
+        return HTTPException(status_code=404, detail=str(exc))
+    if isinstance(exc, RecipeSourceAuthError):
+        return HTTPException(
+            status_code=409,
+            detail=(
+                "Dropbox access was revoked. Disconnect it on your Profile "
+                "page and connect again."
+            ),
+        )
+    log.warning("Recipe source error: %s", exc)
+    return HTTPException(
+        status_code=502, detail="Could not reach Dropbox. Try again shortly."
+    )
+
+
 # ---------------------------------------------------------------------------
 # Per-user routes
 # ---------------------------------------------------------------------------
@@ -173,7 +220,10 @@ async def get_user_recipes(
         return []
     # The Dropbox SDK is synchronous; run it off the event loop so other
     # requests aren't starved while recipes load.
-    recipes = await asyncio.to_thread(service.get_recipes)
+    try:
+        recipes = await asyncio.to_thread(service.get_recipes)
+    except RecipeSourceError as exc:
+        raise source_error_to_http(exc)
     await _flush_pending(user_id, service)
     return recipes
 
@@ -189,7 +239,10 @@ async def get_user_recipe(
     if service is None:
         response.status_code = status.HTTP_204_NO_CONTENT
         return None
-    recipe = await asyncio.to_thread(service.get_recipe, recipe_id)
+    try:
+        recipe = await asyncio.to_thread(service.get_recipe, recipe_id)
+    except RecipeSourceError as exc:
+        raise source_error_to_http(exc)
     await _flush_pending(user_id, service)
     if recipe is None:
         response.status_code = status.HTTP_204_NO_CONTENT
@@ -226,7 +279,13 @@ async def get_recipes_fallback():
     service = _get_fallback_service()
     if service is None:
         return []
-    return await asyncio.to_thread(service.get_recipes)
+    try:
+        return await asyncio.to_thread(service.get_recipes)
+    except RecipeFolderNotFound:
+        # Unconfigured dev setup (no RECIPES_DIR) — not an error here.
+        return []
+    except RecipeSourceError as exc:
+        raise source_error_to_http(exc)
 
 
 @router.get("/recipe/{recipe_id}", status_code=200)
@@ -235,7 +294,10 @@ async def get_recipe_fallback(recipe_id: str, response: Response):
     if service is None:
         response.status_code = status.HTTP_204_NO_CONTENT
         return None
-    recipe = await asyncio.to_thread(service.get_recipe, recipe_id)
+    try:
+        recipe = await asyncio.to_thread(service.get_recipe, recipe_id)
+    except RecipeSourceError as exc:
+        raise source_error_to_http(exc)
     if recipe is None:
         response.status_code = status.HTTP_204_NO_CONTENT
     return recipe

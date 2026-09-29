@@ -232,6 +232,9 @@ class DBService:
         ]
         await self.recipe_cache_collection.bulk_write(ops, ordered=False)
 
+    async def delete_recipe_cache_for_user(self, user_id: str) -> None:
+        await self.recipe_cache_collection.delete_many({"user_id": user_id})
+
     async def delete_recipe_cache_entries(
         self, user_id: str, identifiers: List[str]
     ) -> None:

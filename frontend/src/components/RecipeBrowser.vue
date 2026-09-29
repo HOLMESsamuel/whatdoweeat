@@ -20,13 +20,31 @@
       <p v-if="connectError" class="connect-error">{{ connectError }}</p>
     </div>
 
-    <!-- Connected: filters + recipe list. -->
-    <recipe-list
-      v-else-if="status.connected"
-      :recipes="recipes"
-      :loading="loadingRecipes"
-      @select="viewRecipe"
-    />
+    <!-- Connected: folder bar + filters + recipe list. -->
+    <template v-else-if="status.connected">
+      <div class="folder-bar">
+        <span>
+          Reading recipes from
+          <code>{{ status.recipes_path || '/' }}</code>
+        </span>
+        <button class="link-btn" @click="pickingFolder = !pickingFolder">
+          {{ pickingFolder ? 'Close' : 'Change folder' }}
+        </button>
+      </div>
+      <dropbox-folder-picker
+        v-if="pickingFolder"
+        :user-id="userId"
+        :initial-path="status.recipes_path || ''"
+        @saved="onFolderSaved"
+        @cancel="pickingFolder = false"
+      />
+      <p v-if="recipesError" class="connect-error">{{ recipesError }}</p>
+      <recipe-list
+        :recipes="recipes"
+        :loading="loadingRecipes"
+        @select="viewRecipe"
+      />
+    </template>
   </div>
 </template>
 
@@ -35,7 +53,13 @@ import { defineComponent, ref, onMounted, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuth0 } from '@auth0/auth0-vue';
 import { getApi } from '../services/api';
+import {
+  apiErrorMessage,
+  cachedRecipes,
+  loadRecipes,
+} from '../services/recipes';
 import RecipeList, { Recipe } from './RecipeList.vue';
+import DropboxFolderPicker from './DropboxFolderPicker.vue';
 
 interface DropboxStatus {
   connected: boolean;
@@ -47,7 +71,7 @@ const DEFAULT_PATH = '/ideaverse/Recettes/recette-templated';
 
 export default defineComponent({
   name: 'RecipeBrowser',
-  components: { RecipeList },
+  components: { RecipeList, DropboxFolderPicker },
   setup() {
     const router = useRouter();
     const route = useRoute();
@@ -56,6 +80,8 @@ export default defineComponent({
 
     const recipes = ref<Recipe[]>([]);
     const loadingRecipes = ref(false);
+    const recipesError = ref('');
+    const pickingFolder = ref(false);
 
     const status = ref<DropboxStatus>({ connected: false, loading: true });
     const recipesPath = ref(DEFAULT_PATH);
@@ -63,13 +89,13 @@ export default defineComponent({
     const connectError = ref('');
     const appName = 'whatdoweeat';
 
-    let userId = '';
+    const userId = ref('');
     // `sub` may contain `|` (e.g. "auth0|abc123") which is a reserved
     // URL char — encode it whenever it goes into a path segment.
-    const userPath = () => encodeURIComponent(userId);
+    const userPath = () => encodeURIComponent(userId.value);
 
     const fetchStatus = async () => {
-      if (!userId) return;
+      if (!userId.value) return;
       status.value.loading = true;
       try {
         const { data } = await api.get(`/user/${userPath()}/dropbox/status`);
@@ -86,21 +112,35 @@ export default defineComponent({
     };
 
     const fetchRecipes = async () => {
-      if (!userId || !status.value.connected) return;
-      loadingRecipes.value = true;
+      if (!userId.value) return;
+      const cached = cachedRecipes(userId.value);
+      if (cached) recipes.value = cached;
+      loadingRecipes.value = !cached;
+      recipesError.value = '';
       try {
-        const { data } = await api.get(`/user/${userPath()}/recipes`);
-        recipes.value = data || [];
-      } catch (err) {
+        recipes.value = await loadRecipes(userId.value);
+      } catch (err: any) {
         console.error('Error fetching recipes:', err);
-        recipes.value = [];
+        recipesError.value = apiErrorMessage(err, 'Could not load recipes.');
+        if (err?.response?.status === 404) {
+          // The folder is gone (moved/renamed in Dropbox).
+          recipes.value = [];
+          pickingFolder.value = true;
+        }
       } finally {
         loadingRecipes.value = false;
       }
     };
 
+    const onFolderSaved = async (path: string) => {
+      status.value.recipes_path = path;
+      pickingFolder.value = false;
+      recipes.value = [];
+      await fetchRecipes();
+    };
+
     const connectDropbox = async () => {
-      if (!userId) return;
+      if (!userId.value) return;
       connecting.value = true;
       connectError.value = '';
       try {
@@ -133,11 +173,10 @@ export default defineComponent({
       // Wait until Auth0 has resolved so we have user.value.sub.
       const start = async () => {
         if (user.value?.sub) {
-          userId = user.value.sub;
-          await fetchStatus();
-          if (status.value.connected) {
-            await fetchRecipes();
-          }
+          userId.value = user.value.sub;
+          // Fetch both at once: the recipes endpoint returns [] for users
+          // who haven't connected, so there's no need to wait on status.
+          await Promise.all([fetchStatus(), fetchRecipes()]);
         }
       };
       if (!isLoading.value && isAuthenticated.value) {
@@ -162,6 +201,10 @@ export default defineComponent({
       appName,
       recipes,
       loadingRecipes,
+      recipesError,
+      pickingFolder,
+      userId,
+      onFolderSaved,
       viewRecipe,
       connectDropbox,
     };
@@ -237,6 +280,32 @@ export default defineComponent({
 .connect-btn:disabled {
   opacity: 0.6;
   cursor: progress;
+}
+
+.folder-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-bottom: 8px;
+  color: #555;
+  font-size: 0.9em;
+}
+
+.folder-bar code {
+  background-color: #eee;
+  padding: 1px 6px;
+  border-radius: 3px;
+  overflow-wrap: anywhere;
+}
+
+.link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  color: #699051;
+  cursor: pointer;
+  text-decoration: underline;
 }
 
 .connect-error {

@@ -46,15 +46,36 @@ Claude always updates this file when something changes.
 - Single-tenant fallback: `GET /recipes` reads from `RECIPE_SOURCE=local`
   (env var `RECIPES_DIR`) — useful for dev without Dropbox.
 - `_user_services` cache in `recipe_routes.py` holds one `RecipeFileService`
-  per user. Call `invalidate_user_recipe_cache(user_id)` after credential
-  or path changes (the OAuth callback does this).
+  per user. After credential or path changes call
+  `reset_user_recipe_cache(user_id)` (OAuth callback, `PUT .../dropbox/path`
+  and disconnect do), which also purges the user's Mongo `recipe_cache`:
+  cache keys are bare filenames, so without the purge a same-named file
+  with the same mtime in the new folder would be served from the old
+  folder's parse. `_flush_pending` skips writes from a service that was
+  replaced mid-request for the same reason.
+- Recipe folder is per user (`dropbox_credentials.recipes_path`), chosen
+  at connect time and changeable later via `DropboxFolderPicker.vue`
+  (Recipes page folder bar + Profile). It's backed by
+  `GET /user/{id}/dropbox/folders?path=` (subfolders of a path) and
+  `PUT /user/{id}/dropbox/path`, which 404s if the folder doesn't exist.
+  Paths go through `normalize_dropbox_path` (leading `/`, no trailing
+  `/`, Dropbox root is `""`). Default is `DEFAULT_RECIPES_PATH` in
+  `models/dropbox_credential.py`.
+- Source listing failures raise instead of yielding nothing:
+  `RecipeFolderNotFound` → 404 with detail, `RecipeSourceAuthError`
+  (revoked token) → 409, other `RecipeSourceError` → 502 (mapping in
+  `source_error_to_http`). The single-tenant `/recipes` fallback returns
+  `[]` for a missing local folder. Before this, a Dropbox blip looked like "all files deleted" and
+  wiped both cache tiers. Listing happens before the cache is touched.
 - The Dropbox SDK is synchronous, so the `/recipes` and `/recipe/{id}`
   routes wrap `service.get_recipes()` / `service.get_recipe()` in
   `asyncio.to_thread` — without that the event loop blocks during a
   cold load and every other request stalls. Inside `_refresh`,
   stale-file downloads run through a `ThreadPoolExecutor` (size from
-  `RECIPE_PARALLEL_READS`, default 16). The lock is only held for cache
-  reads/writes, never during network I/O.
+  `RECIPE_PARALLEL_READS`, default 16). `_lock` is only held for cache
+  reads/writes, never during network I/O; a separate `_refresh_lock`
+  serializes whole refreshes so concurrent cold loads download each
+  file once.
 - Two-tier cache: in-memory in `RecipeFileService._cache`, mirrored to
   Mongo `recipe_cache` (one doc per `(user_id, identifier)` with
   `mtime` + serialized `recipe`). Per-user routes call
@@ -78,6 +99,13 @@ Claude always updates this file when something changes.
   `RECIPE_DRAG_MIME` exported alongside the `Recipe` type); the
   planner's drop handler reads it back from `event.dataTransfer`. The
   parent owns recipe fetching; RecipeList just renders/filters.
+- Frontend recipe fetching goes through `services/recipes.ts`: a
+  session-level cache (`cachedRecipes`/`cachedRecipe`) plus
+  `loadRecipes(userId)` that dedupes in-flight requests. Pages render the
+  cached copy immediately, then revalidate; RecipeDetail renders from the
+  cached list before its own fetch. Call `clearRecipeCache()` on folder
+  change / disconnect. The recipes endpoint returns `[]` when Dropbox
+  isn't connected, so pages fetch it in parallel with the status call.
 
 ## Grocery list
 
@@ -157,9 +185,12 @@ Claude always updates this file when something changes.
   import deps.
 - Frontend checks: `npx vue-tsc --noEmit` for types, `npx vite build` for
   a full build. Both fast (<2s typecheck, <2s build). No frontend tests.
-- Backend tests: pytest in `backend/tests/` — coverage is sparse, only
-  `models_tests/grocery_test.py`. Don't assume a test exists for what
-  you change.
+- Backend tests: pytest in `backend/tests/`, run from the repo root
+  (`python -m pytest backend/tests`; imports are `backend.src...`).
+  Coverage: `models_tests/grocery_test.py` and
+  `services_tests/recipe_file_service_test.py` (cache reuse, listing
+  errors, pagination, path normalization, refresh coalescing). Don't
+  assume a test exists for what you change.
 
 ## Things that have bitten me
 
@@ -170,3 +201,6 @@ Claude always updates this file when something changes.
   `typeof d._id === 'string' ? d._id : String(d._id)`.
 - `start_dev.sh` does `kill_port 27017` — if you have a personal mongod
   running on 27017 outside this project, it'll die.
+- Prod certbot used `--force-renewal`, so every deploy issued a new
+  cert and hit Let's Encrypt's 5-certs-per-week limit (certbot container
+  exited 1). It now uses `--keep-until-expiring`.
