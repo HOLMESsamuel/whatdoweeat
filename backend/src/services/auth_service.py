@@ -15,6 +15,13 @@ Required env vars:
   - AUTH0_AUDIENCE   (the API identifier you create in the Auth0
                       dashboard, e.g. `https://api.whatdoweeat`).
 
+Optional:
+  - ALLOWED_USERS    comma-separated Auth0 `sub`s allowed to use the
+                     API (e.g. `auth0|abc,google-oauth2|123`). Anyone
+                     else gets 403 even with a valid token. Empty/unset
+                     allows every authenticated user. It matches on
+                     `sub` because access tokens don't carry `email`.
+
 To get an access token with the right claims, the frontend's
 createAuth0() must request `audience: AUTH0_AUDIENCE` and the `email`
 scope. See frontend/src/main.ts.
@@ -143,6 +150,21 @@ class CurrentUser:
         self.user_id = sub
 
 
+ACCESS_DENIED_DETAIL = "This account is not allowed to use whatdoweeat."
+
+
+def allowed_users() -> frozenset[str]:
+    raw = os.getenv("ALLOWED_USERS", "")
+    return frozenset(u.strip() for u in raw.split(",") if u.strip())
+
+
+if not allowed_users():
+    log.warning(
+        "ALLOWED_USERS is not set: every account that can log in through "
+        "Auth0 can use the API."
+    )
+
+
 def get_current_user(
     authorization: Annotated[Optional[str], Header()] = None,
 ) -> CurrentUser:
@@ -152,7 +174,12 @@ def get_current_user(
         )
     token = authorization.split(" ", 1)[1].strip()
     claims = verify_token(token)
-    return CurrentUser(claims)
+    user = CurrentUser(claims)
+    allowed = allowed_users()
+    if allowed and user.user_id not in allowed:
+        log.warning("Rejected user not in ALLOWED_USERS: %s", user.user_id)
+        raise HTTPException(status_code=403, detail=ACCESS_DENIED_DETAIL)
+    return user
 
 
 def require_user_id(user_id: str, user: CurrentUser = Depends(get_current_user)) -> CurrentUser:

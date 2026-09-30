@@ -12,8 +12,8 @@ There are two layers, accessed via different routes:
     user deployments):
       GET  /recipes
       GET  /recipe/{recipe_id}
-    Reads from RECIPE_SOURCE=local|dropbox env vars. Returns an empty
-    list when nothing is configured rather than 500ing.
+    Reads from RECIPE_SOURCE=local|dropbox env vars. Requires login.
+    Returns an empty list when nothing is configured rather than 500ing.
 
 Mutation endpoints stay 405 — recipes are read-only here, edited in
 Obsidian.
@@ -30,7 +30,7 @@ from typing import Dict, Optional
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 
 from ..models.recipe import Recipe
-from ..services.auth_service import CurrentUser, require_user_id
+from ..services.auth_service import CurrentUser, get_current_user, require_user_id
 from ..services.crypto_service import get_token_encryption
 from ..services.db_service import DBService
 from ..services.recipe_file_service import (
@@ -250,7 +250,7 @@ async def get_user_recipe(
 
 
 # ---------------------------------------------------------------------------
-# Single-tenant fallback routes (no auth, env-configured)
+# Single-tenant fallback routes (env-configured, login required)
 # ---------------------------------------------------------------------------
 
 # Module-level singleton — only constructed if the relevant env vars
@@ -274,8 +274,10 @@ def _get_fallback_service() -> Optional[RecipeFileService]:
     return _fallback_service
 
 
+# Login (and so ALLOWED_USERS) is required: with RECIPE_SOURCE=dropbox
+# these would otherwise expose that Dropbox folder to anyone.
 @router.get("/recipes", status_code=200)
-async def get_recipes_fallback():
+async def get_recipes_fallback(user: CurrentUser = Depends(get_current_user)):
     service = _get_fallback_service()
     if service is None:
         return []
@@ -289,7 +291,11 @@ async def get_recipes_fallback():
 
 
 @router.get("/recipe/{recipe_id}", status_code=200)
-async def get_recipe_fallback(recipe_id: str, response: Response):
+async def get_recipe_fallback(
+    recipe_id: str,
+    response: Response,
+    user: CurrentUser = Depends(get_current_user),
+):
     service = _get_fallback_service()
     if service is None:
         response.status_code = status.HTTP_204_NO_CONTENT
