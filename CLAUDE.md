@@ -29,6 +29,21 @@ Claude always updates this file when something changes.
 - Routes shaped `/user/{user_id}/...` use `Depends(require_user_id)`,
   which 403s if the path id ≠ token `sub`. Plain auth uses
   `Depends(get_current_user)`.
+- `get_current_user` also enforces the `ALLOWED_USERS` env var
+  (comma-separated `sub`s; empty = everyone, with a startup warning).
+  Match is on `sub` because Auth0 access tokens don't carry `email`.
+  Rejections are 403 with `ACCESS_DENIED_DETAIL`; the frontend's axios
+  interceptor recognizes that exact string and flips `accessDenied`
+  (api.ts), which App.vue shows as a banner. Keep the two strings in
+  sync. Every authenticated route inherits the allowlist.
+- Dropbox OAuth `state` carries a nonce that must match the HttpOnly
+  `wdwe_dropbox_oauth` cookie set by `/auth-url` (SameSite=Lax, path
+  `/`, 10 min). This binds the flow to the browser that started it —
+  without it, an attacker could hand a victim their own authorize URL
+  and get the victim's Dropbox linked to the attacker's account. The
+  check runs before the code exchange. The frontend requests
+  `/auth-url` with `withCredentials` so the cookie sticks in dev, where
+  frontend and backend are on different ports.
 - Frontend axios client is a singleton: `createApi(auth0)` is called once
   in `main.ts`; components use `getApi()`. The interceptor injects a
   fresh access token per request.
@@ -44,7 +59,9 @@ Claude always updates this file when something changes.
   Reads via the user's stored Dropbox refresh token (encrypted at rest
   via `crypto_service`, decrypted on demand).
 - Single-tenant fallback: `GET /recipes` reads from `RECIPE_SOURCE=local`
-  (env var `RECIPES_DIR`) — useful for dev without Dropbox.
+  (env var `RECIPES_DIR`) — useful for dev without Dropbox. Requires
+  login (so the allowlist applies); it used to be unauthenticated, which
+  with `RECIPE_SOURCE=dropbox` would have made that Dropbox public.
 - `_user_services` cache in `recipe_routes.py` holds one `RecipeFileService`
   per user. After credential or path changes call
   `reset_user_recipe_cache(user_id)` (OAuth callback, `PUT .../dropbox/path`
@@ -187,10 +204,14 @@ Claude always updates this file when something changes.
   a full build. Both fast (<2s typecheck, <2s build). No frontend tests.
 - Backend tests: pytest in `backend/tests/`, run from the repo root
   (`python -m pytest backend/tests`; imports are `backend.src...`).
-  Coverage: `models_tests/grocery_test.py` and
+  Coverage: `models_tests/grocery_test.py`,
   `services_tests/recipe_file_service_test.py` (cache reuse, listing
-  errors, pagination, path normalization, refresh coalescing). Don't
-  assume a test exists for what you change.
+  errors, pagination, path normalization, refresh coalescing) and
+  `routes_tests/security_test.py` (OAuth nonce binding, allowlist,
+  fallback auth; uses a bare FastAPI app with stubbed token
+  verification). `tests/conftest.py` puts `backend/` on `sys.path` so
+  `src.*` imports work when CI runs `cd backend && pytest tests/`.
+  Don't assume a test exists for what you change.
 
 ## Things that have bitten me
 

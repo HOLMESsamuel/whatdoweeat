@@ -3,6 +3,10 @@
     <nav-bar />
     <div class="container flex-grow">
       <error />
+      <div v-if="accessDenied" class="alert alert-warning">
+        This account isn't allowed to use What do we eat. Ask the owner to
+        add you, or log in with another account.
+      </div>
       <div class="mt-5">
         <router-view />
       </div>
@@ -20,6 +24,7 @@
 import NavBar from "./components/NavBar.vue";
 import Error from "./components/Error.vue";
 import { useDark } from '@vueuse/core';
+import { accessDenied } from './services/api';
 
 export default {
   components: {
@@ -31,7 +36,8 @@ export default {
     const isDark = useDark();
 
     return {
-      isDark
+      isDark,
+      accessDenied
     }
   }
 };

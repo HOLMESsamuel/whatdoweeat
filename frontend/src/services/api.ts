@@ -9,8 +9,15 @@
 
 import axios, { AxiosInstance } from 'axios';
 import { Auth0VueClient } from '@auth0/auth0-vue';
+import { ref } from 'vue';
 
 let _client: AxiosInstance | null = null;
+
+// Must match ACCESS_DENIED_DETAIL in backend/src/services/auth_service.py.
+const ACCESS_DENIED_DETAIL = 'This account is not allowed to use whatdoweeat.';
+
+/** Set once the backend rejects this account (not in ALLOWED_USERS). */
+export const accessDenied = ref(false);
 
 export function createApi(auth0: Auth0VueClient): AxiosInstance {
   if (_client) return _client;
@@ -30,6 +37,16 @@ export function createApi(auth0: Auth0VueClient): AxiosInstance {
       console.warn('No access token available:', err);
     }
     return config;
+  });
+
+  client.interceptors.response.use(undefined, err => {
+    if (
+      err?.response?.status === 403 &&
+      err.response.data?.detail === ACCESS_DENIED_DETAIL
+    ) {
+      accessDenied.value = true;
+    }
+    return Promise.reject(err);
   });
 
   _client = client;

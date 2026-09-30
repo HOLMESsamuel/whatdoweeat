@@ -63,6 +63,12 @@ BACKEND_PUBLIC_URL
 FRONTEND_PUBLIC_URL
 ```
 
+Strongly recommended: `ALLOWED_USERS`, a comma-separated list of the
+Auth0 user ids (`sub`, shown on the Profile page) allowed to use the
+app. Without it anyone who can sign up through Auth0 can use it. After
+changing `.env`, recreate the backend (`docker compose up -d backend`);
+a plain restart doesn't reload env vars.
+
 ### 5. Per-user: each user clicks "Connect Dropbox" in the app
 
 Once the stack is up, every user goes through their own one-click flow:

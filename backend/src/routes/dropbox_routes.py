@@ -25,9 +25,11 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import hmac
 from typing import List, Optional
+from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
@@ -40,9 +42,11 @@ from ..services.crypto_service import get_token_encryption
 from ..services.db_service import DBService
 from ..services.dropbox_oauth_service import (
     build_authorize_url,
+    STATE_TTL_SECONDS,
     decode_state,
     encode_state,
     exchange_code_for_tokens,
+    new_state_nonce,
     revoke_refresh_token,
     _frontend_url,
 )
@@ -69,6 +73,24 @@ db = DBService(_mongo_uri, "whatdoweeat")
 
 def _get_db() -> DBService:
     return db
+
+
+# Binds the OAuth flow to the browser that started it; see the state
+# docs in dropbox_oauth_service.
+_NONCE_COOKIE = "wdwe_dropbox_oauth"
+
+
+def _secure_cookies() -> bool:
+    return os.getenv("BACKEND_PUBLIC_URL", "").startswith("https://")
+
+
+def _redirect_with_error(frontend: str, msg: str) -> RedirectResponse:
+    resp = RedirectResponse(
+        url=f"{frontend}/#/recipes?dropbox_error={quote(msg)}",
+        status_code=302,
+    )
+    resp.delete_cookie(_NONCE_COOKIE, path="/")
+    return resp
 
 
 class AuthUrlResponse(BaseModel):
@@ -112,14 +134,28 @@ async def _list_subfolders_or_raise(user_id: str, path: str) -> List[FolderItem]
 )
 async def get_auth_url(
     user_id: str,
+    response: Response,
     recipes_path: str = Query(
         default=DEFAULT_RECIPES_PATH,
         description="Folder inside the user's Dropbox to read recipes from.",
     ),
     user: CurrentUser = Depends(require_user_id),
 ):
+    nonce = new_state_nonce()
     state = encode_state(
-        user_id=user_id, recipes_path=normalize_dropbox_path(recipes_path)
+        user_id=user_id,
+        recipes_path=normalize_dropbox_path(recipes_path),
+        nonce=nonce,
+    )
+    # SameSite=Lax still sends it on Dropbox's top-level redirect back.
+    response.set_cookie(
+        _NONCE_COOKIE,
+        nonce,
+        max_age=STATE_TTL_SECONDS,
+        path="/",
+        httponly=True,
+        secure=_secure_cookies(),
+        samesite="lax",
     )
     return AuthUrlResponse(url=build_authorize_url(state))
 
@@ -130,37 +166,47 @@ async def dropbox_callback(
     state: Optional[str] = Query(default=None),
     error: Optional[str] = Query(default=None),
     error_description: Optional[str] = Query(default=None),
+    nonce_cookie: Optional[str] = Cookie(default=None, alias=_NONCE_COOKIE),
 ):
     """Hit by Dropbox after the user clicks Allow (or Cancel).
 
-    Authentication is via the signed `state` parameter — the browser's
-    Auth0 session isn't reachable here because Dropbox is redirecting
-    cross-origin.
+    Authentication is via the signed `state` parameter plus the nonce
+    cookie set by /auth-url — the browser's Auth0 session isn't reachable
+    here because Dropbox is redirecting cross-origin.
     """
     frontend = _frontend_url()
     if error:
         msg = error_description or error
         log.warning("Dropbox callback returned error: %s", msg)
-        return RedirectResponse(
-            url=f"{frontend}/#/recipes?dropbox_error={msg}",
-            status_code=302,
-        )
+        return _redirect_with_error(frontend, msg)
     if not code or not state:
         raise HTTPException(status_code=400, detail="Missing code or state")
     try:
         decoded = decode_state(state)
     except ValueError as exc:
         log.warning("Invalid state on Dropbox callback: %s", exc)
-        raise HTTPException(status_code=400, detail=f"Invalid state: {exc}")
+        return _redirect_with_error(
+            frontend, "The Dropbox link expired or is invalid. Please try again."
+        )
+    # Checked before the code exchange so a planted link never yields a
+    # token at all.
+    if not nonce_cookie or not hmac.compare_digest(nonce_cookie, decoded.nonce):
+        log.warning(
+            "Dropbox callback nonce mismatch for user %s — flow not started "
+            "in this browser",
+            decoded.user_id,
+        )
+        return _redirect_with_error(
+            frontend,
+            "This Dropbox connection wasn't started from this browser. "
+            "Please click Connect Dropbox again.",
+        )
 
     try:
         tokens = exchange_code_for_tokens(code)
     except RuntimeError as exc:
         log.exception("Dropbox token exchange failed")
-        return RedirectResponse(
-            url=f"{frontend}/#/recipes?dropbox_error={exc}",
-            status_code=302,
-        )
+        return _redirect_with_error(frontend, str(exc))
 
     enc = get_token_encryption()
     encrypted = enc.encrypt(tokens.refresh_token)
@@ -175,10 +221,12 @@ async def dropbox_callback(
     # cache tiers so nothing from the old one leaks through.
     await reset_user_recipe_cache(decoded.user_id)
 
-    return RedirectResponse(
+    resp = RedirectResponse(
         url=f"{frontend}/#/recipes?dropbox_connected=1",
         status_code=302,
     )
+    resp.delete_cookie(_NONCE_COOKIE, path="/")
+    return resp
 
 
 @router.get(

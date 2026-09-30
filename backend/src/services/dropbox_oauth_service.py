@@ -6,9 +6,12 @@ URL to *their* Dropbox account; what comes back is a refresh token only
 valid for that user's account, which we store encrypted per-user.
 
 `state` is a HMAC-signed payload encoding {user_id, recipes_path,
-expiry}. Dropbox echoes it back unchanged on the callback, so we can
-trust it (after re-verifying the HMAC) without keeping any server-side
-state between the two requests.
+nonce, expiry}. Dropbox echoes it back unchanged on the callback, so we
+can trust it (after re-verifying the HMAC) without keeping any
+server-side state between the two requests. The nonce is also set as a
+cookie on the browser that started the flow and must match on the
+callback: otherwise anyone could hand their own authorize URL to a
+victim and have the victim's Dropbox linked to the attacker's account.
 """
 
 from __future__ import annotations
@@ -19,6 +22,7 @@ import hmac
 import json
 import logging
 import os
+import secrets
 import time
 from dataclasses import dataclass
 from typing import Optional
@@ -94,7 +98,15 @@ def _state_signing_key() -> bytes:
 class OAuthState:
     user_id: str
     recipes_path: str
+    nonce: str
     expires_at: int  # unix seconds
+
+
+STATE_TTL_SECONDS = _STATE_TTL_SECONDS
+
+
+def new_state_nonce() -> str:
+    return secrets.token_urlsafe(32)
 
 
 def _b64encode(b: bytes) -> str:
@@ -106,10 +118,11 @@ def _b64decode(s: str) -> bytes:
     return base64.urlsafe_b64decode(s + pad)
 
 
-def encode_state(user_id: str, recipes_path: str) -> str:
+def encode_state(user_id: str, recipes_path: str, nonce: str) -> str:
     payload = {
         "u": user_id,
         "p": recipes_path,
+        "n": nonce,
         "e": int(time.time()) + _STATE_TTL_SECONDS,
     }
     body = json.dumps(payload, separators=(",", ":")).encode()
@@ -136,10 +149,13 @@ def decode_state(state: str) -> OAuthState:
 
     if int(payload.get("e", 0)) < int(time.time()):
         raise ValueError("State has expired")
+    if not payload.get("n"):
+        raise ValueError("State has no nonce")
 
     return OAuthState(
         user_id=payload["u"],
         recipes_path=payload["p"],
+        nonce=payload["n"],
         expires_at=int(payload["e"]),
     )
 

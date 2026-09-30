@@ -146,7 +146,12 @@ export default defineComponent({
       try {
         const { data } = await api.get(
           `/user/${userPath()}/dropbox/auth-url`,
-          { params: { recipes_path: recipesPath.value } }
+          {
+            params: { recipes_path: recipesPath.value },
+            // Needed in dev (frontend and backend on different ports) for
+            // the browser to keep the OAuth nonce cookie.
+            withCredentials: true,
+          }
         );
         // Send the browser to Dropbox; it'll redirect back to the
         // backend's /dropbox/callback, which redirects to /#/recipes.
