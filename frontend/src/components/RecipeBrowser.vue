@@ -39,16 +39,47 @@
         @cancel="pickingFolder = false"
       />
       <p v-if="recipesError" class="connect-error">{{ recipesError }}</p>
+      <div class="idea-toolbar">
+        <button
+          class="inspire-btn"
+          :disabled="!recipes.length"
+          @click="inspiring = true"
+        >
+          ✨ Inspire me
+        </button>
+        <button
+          class="shuffle-btn"
+          :disabled="!recipes.length"
+          title="Shuffle the order"
+          @click="shuffle++"
+        >
+          🔀 Shuffle
+        </button>
+      </div>
       <p class="press-hint">
         Tap a recipe to open it, or press and hold to add its ingredients
-        to your grocery list.
+        to your grocery list. Recipes made or planned recently are at the
+        bottom.
       </p>
       <recipe-list
-        :recipes="recipes"
+        :recipes="rankedRecipes"
         :loading="loadingRecipes"
+        :notes="notes"
         long-press
         @select="viewRecipe"
         @long-press="addToGroceryList"
+      />
+      <idea-picker
+        v-if="inspiring"
+        title="What about…"
+        :ideas="ideas"
+        :page-size="1"
+        :notes="notes"
+        :busy="adding"
+        pick-label="Add to grocery list"
+        @pick="pickIdea"
+        @open="viewRecipe"
+        @close="inspiring = false"
       />
       <div
         v-if="toast"
@@ -63,7 +94,7 @@
 </template>
 
 <script lang="ts">
-import { defineComponent, ref, onMounted, watch } from 'vue';
+import { defineComponent, ref, computed, onMounted, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuth0 } from '@auth0/auth0-vue';
 import { getApi } from '../services/api';
@@ -74,6 +105,16 @@ import {
 } from '../services/recipes';
 import RecipeList, { Recipe } from './RecipeList.vue';
 import DropboxFolderPicker from './DropboxFolderPicker.vue';
+import IdeaPicker from './IdeaPicker.vue';
+import {
+  History,
+  fetchRecipeHistory,
+  historyLabel,
+  isoDay,
+  mealIdeas,
+  rankRecipes,
+  recordRecipeUse,
+} from '../services/suggestions';
 import {
   addRecipeToList,
   fetchGroceryLists,
@@ -90,7 +131,7 @@ const DEFAULT_PATH = '/ideaverse/Recettes/recette-templated';
 
 export default defineComponent({
   name: 'RecipeBrowser',
-  components: { RecipeList, DropboxFolderPicker },
+  components: { RecipeList, DropboxFolderPicker, IdeaPicker },
   setup() {
     const router = useRouter();
     const route = useRoute();
@@ -103,7 +144,36 @@ export default defineComponent({
     const pickingFolder = ref(false);
     const toast = ref<{ text: string; error: boolean } | null>(null);
     let toastTimer: number | null = null;
-    let adding = false;
+    const adding = ref(false);
+    const history = ref<History>({});
+    const shuffle = ref(0);
+    const inspiring = ref(false);
+
+    const rankedRecipes = computed(() =>
+      rankRecipes(recipes.value, { history: history.value, shuffle: shuffle.value })
+    );
+    const ideas = computed(() =>
+      mealIdeas(recipes.value, { history: history.value, shuffle: shuffle.value })
+    );
+    const notes = computed(() => {
+      const today = new Date();
+      const out: Record<string, string> = {};
+      for (const r of recipes.value) {
+        const label = historyLabel(r, history.value, today);
+        if (label) out[r.id] = label;
+      }
+      return out;
+    });
+
+    const fetchHistory = async () => {
+      if (!userId.value) return;
+      try {
+        history.value = await fetchRecipeHistory(userId.value);
+      } catch (err) {
+        // Ranking still works without it, just without the recency part.
+        console.error('Could not load recipe history', err);
+      }
+    };
 
     const status = ref<DropboxStatus>({ connected: false, loading: true });
     const recipesPath = ref(DEFAULT_PATH);
@@ -190,8 +260,8 @@ export default defineComponent({
     // Fetched per press rather than cached so edits to lists or staples
     // made elsewhere (Profile, another device) apply straight away.
     const addToGroceryList = async (recipe: Recipe) => {
-      if (adding || !userId.value) return;
-      adding = true;
+      if (adding.value || !userId.value) return;
+      adding.value = true;
       showToast(`Adding "${recipe.name}"…`);
       try {
         const [lists, staples] = await Promise.all([
@@ -210,6 +280,10 @@ export default defineComponent({
         let text = `Added ${added.length} ingredient(s) from "${recipe.name}" to "${lists[0].name}".`;
         if (skipped.length) text += ` Skipped: ${skipped.join(', ')}.`;
         showToast(text);
+        history.value = { ...history.value, [recipe.id]: isoDay(new Date()) };
+        recordRecipeUse(userId.value, recipe.id).catch(err =>
+          console.error('Could not record recipe use', err)
+        );
       } catch (err: any) {
         console.error('Could not add recipe to grocery list', err);
         showToast(
@@ -217,8 +291,13 @@ export default defineComponent({
           true
         );
       } finally {
-        adding = false;
+        adding.value = false;
       }
+    };
+
+    const pickIdea = async (recipe: Recipe) => {
+      await addToGroceryList(recipe);
+      inspiring.value = false;
     };
 
     const viewRecipe = (recipe: Recipe) => {
@@ -238,7 +317,7 @@ export default defineComponent({
           userId.value = user.value.sub;
           // Fetch both at once: the recipes endpoint returns [] for users
           // who haven't connected, so there's no need to wait on status.
-          await Promise.all([fetchStatus(), fetchRecipes()]);
+          await Promise.all([fetchStatus(), fetchRecipes(), fetchHistory()]);
         }
       };
       if (!isLoading.value && isAuthenticated.value) {
@@ -268,7 +347,14 @@ export default defineComponent({
       userId,
       onFolderSaved,
       toast,
+      adding,
       addToGroceryList,
+      rankedRecipes,
+      ideas,
+      notes,
+      shuffle,
+      inspiring,
+      pickIdea,
       viewRecipe,
       connectDropbox,
     };
@@ -370,6 +456,40 @@ export default defineComponent({
   color: #699051;
   cursor: pointer;
   text-decoration: underline;
+}
+
+.idea-toolbar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.inspire-btn,
+.shuffle-btn {
+  border-radius: 6px;
+  padding: 8px 14px;
+  cursor: pointer;
+  border: 1px solid #699051;
+  font-size: 0.95em;
+}
+
+.inspire-btn {
+  flex: 1;
+  background-color: #FF843C;
+  border-color: #FF843C;
+  color: white;
+  font-weight: 600;
+}
+
+.shuffle-btn {
+  background-color: white;
+  color: #445837;
+}
+
+.inspire-btn:disabled,
+.shuffle-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .press-hint {

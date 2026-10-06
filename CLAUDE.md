@@ -12,7 +12,7 @@ Claude always updates this file when something changes.
   in `backend/src/services/auth_service.py`.
 - **Persistence**: MongoDB `whatdoweeat`. Collections: `users`,
   `grocery_lists`, `dropbox_credentials`, `meal_plans`, `recipe_cache`,
-  `pantry_staples`.
+  `pantry_staples`, `recipe_history`.
   Recipes themselves are NOT in Mongo — they're parsed from markdown
   files in the user's Dropbox by `RecipeFileService`. `recipe_cache`
   only persists the parse cache so a backend restart doesn't have to
@@ -141,6 +141,40 @@ Claude always updates this file when something changes.
   "sel" skips "fleur de sel" but not "selle d'agneau"; "poivre" doesn't
   skip "poivron". Staples are fetched per add so edits apply at once.
 
+## Recipe suggestions
+
+- Goal of the Recipes page is "what should we eat", not browsing an
+  index. Logic lives in `frontend/src/services/suggestions.ts`:
+  - `recipeCategory` → `meal` | `sweet`. Dessert tags are inconsistent,
+    so: meal tags (`plat`, `soupe`…) win, then sweet tags (`dessert`,
+    `goûter`…), then any savory ingredient (oignon, ail, viande, tomates…)
+    → meal, then sugar/chocolate ingredients or a sweet name (gâteau,
+    crêpes…) → sweet, else meal. All matching is whole-word,
+    accent-insensitive (reuses `stapleMatcher`).
+  - `rankRecipes`: FNV-hashed `(day, shuffle counter, recipe id)` gives
+    a random order that's stable for a day (the 🔀 button bumps the
+    counter); recipes used in the last `RECENT_DAYS` (21) sink to the
+    bottom; season tags (`printemps/été/automne/hiver`, ±3-week edges)
+    nudge ±0.35; recipes not used for 60+ days get +0.25. Untagged or
+    all-season recipes are season-neutral.
+  - `mealIdeas` = ranked meals that aren't recent (and not in an
+    exclude set) — feeds "Inspire me" and the planner's slot ideas.
+- `RecipeList` filters by category chips (default Meals, prop
+  `defaultCategory`), searches name + tags + ingredient names (every
+  query word must match), and shows `notes[recipe.id]` next to the name
+  ("4 days ago", "Planned", "Not made in 5 months"). It renders recipes
+  in the order given; parents pass ranked lists.
+- History: `GET /user/{id}/recipe-history` → `{last_used: {recipe_id:
+  day}}`, merging the meal plan (any day, future = planned counts as
+  recent) with `recipe_history` (long-press / Inspire adds, recorded via
+  `POST` `{recipe_id, day}` using the client's local date; `$max` keeps
+  the latest). `recipe_id` is pattern-checked because it's used as a
+  Mongo field name.
+- `IdeaPicker.vue` is the shared ideas sheet: `page-size=1` for "Inspire
+  me" (Recipes page), 3 for the planner, where tapping an empty slot
+  with no recipe selected opens it (excludes recipes already on the
+  displayed week).
+
 ## Meal planner
 
 - Frontend route: `/planner` → `Planner.vue`. Recipe search list +
@@ -216,7 +250,8 @@ Claude always updates this file when something changes.
   `models_tests/grocery_test.py`,
   `services_tests/recipe_file_service_test.py` (cache reuse, listing
   errors, pagination, path normalization, refresh coalescing) and
-  `routes_tests/pantry_routes_test.py` (bare FastAPI app with
+  `routes_tests/pantry_routes_test.py` and
+  `routes_tests/recipe_history_routes_test.py` (bare FastAPI app with
   `dependency_overrides` for auth and DB). Don't assume a test exists
   for what you change.
 
