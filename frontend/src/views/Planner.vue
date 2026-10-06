@@ -3,8 +3,9 @@
     <div class="header">
       <h1>Meal Planner</h1>
       <p class="hint">
-        Drag a recipe onto a slot, or tap a recipe and then a slot. Ingredients
-        are automatically added to your first grocery list.
+        Drag a recipe onto a slot, or tap a recipe and then a slot. Tap an
+        empty slot for ideas. Ingredients are automatically added to your
+        first grocery list.
       </p>
     </div>
 
@@ -30,9 +31,10 @@
       <!-- Recipe list panel -->
       <aside class="recipes-panel">
         <recipe-list
-          :recipes="recipes"
+          :recipes="rankedRecipes"
           :selected-id="selectedRecipe?.id || ''"
           :loading="loadingRecipes"
+          :notes="notes"
           compact
           draggable
           @select="onRecipeClick"
@@ -117,6 +119,16 @@
           </div>
         </div>
       </section>
+      <idea-picker
+        v-if="ideaTarget"
+        :title="`Ideas for ${ideaTarget.dayName} ${ideaTarget.label.toLowerCase()}`"
+        :ideas="slotIdeas"
+        :notes="notes"
+        pick-label="Place here"
+        @pick="pickIdea"
+        @open="openRecipe"
+        @close="ideaTarget = null"
+      />
     </div>
   </div>
 </template>
@@ -126,6 +138,15 @@ import { defineComponent, ref, computed, onMounted, watch } from 'vue';
 import { useAuth0 } from '@auth0/auth0-vue';
 import { getApi } from '../services/api';
 import { cachedRecipes, loadRecipes } from '../services/recipes';
+import { useRouter } from 'vue-router';
+import IdeaPicker from '../components/IdeaPicker.vue';
+import {
+  History,
+  fetchRecipeHistory,
+  historyLabel,
+  mealIdeas,
+  rankRecipes,
+} from '../services/suggestions';
 import {
   GroceryListSummary,
   addRecipeToList,
@@ -183,7 +204,7 @@ function isoDate(date: Date): string {
 
 export default defineComponent({
   name: 'PlannerView',
-  components: { RecipeList },
+  components: { RecipeList, IdeaPicker },
   setup() {
     const { user, isAuthenticated, isLoading } = useAuth0();
     const api = getApi();
@@ -196,6 +217,9 @@ export default defineComponent({
     const loadingRecipes = ref(false);
 
     const selectedRecipe = ref<Recipe | null>(null);
+    const router = useRouter();
+    const history = ref<History>({});
+    const ideaTarget = ref<{ day: string; dayName: string; label: string } | null>(null);
     const dragOver = ref<{ day: string; label: string } | null>(null);
     const addStatus = ref('');
     let statusTimer: number | null = null;
@@ -376,6 +400,9 @@ export default defineComponent({
         plan.value.meals.push(slot);
       }
       slot.recipes.push({ recipe_id: recipe.id, recipe_name: recipe.name });
+      if (day > (history.value[recipe.id] || '')) {
+        history.value = { ...history.value, [recipe.id]: day };
+      }
       await savePlan();
       const { added, skipped } = await addIngredientsToFirstList(recipe);
       flashStatus(
@@ -492,8 +519,47 @@ export default defineComponent({
         selectedRecipe.value?.id === recipe.id ? null : recipe;
     };
 
+    const rankedRecipes = computed(() =>
+      rankRecipes(recipes.value, { history: history.value })
+    );
+    const notes = computed(() => {
+      const today = new Date();
+      const out: Record<string, string> = {};
+      for (const r of recipes.value) {
+        const label = historyLabel(r, history.value, today);
+        if (label) out[r.id] = label;
+      }
+      return out;
+    });
+
+    // Meals not made recently and not already on the displayed week.
+    const slotIdeas = computed(() => {
+      const thisWeek = new Set<string>();
+      const days = new Set(weekDays.value.map(d => d.iso));
+      for (const m of plan.value.meals) {
+        if (days.has(m.day)) m.recipes.forEach(r => thisWeek.add(r.recipe_id));
+      }
+      return mealIdeas(recipes.value, { history: history.value, exclude: thisWeek });
+    });
+
+    const pickIdea = async (recipe: Recipe) => {
+      const target = ideaTarget.value;
+      ideaTarget.value = null;
+      if (target) await placeRecipe(recipe, target.day, target.label);
+    };
+
+    const openRecipe = (recipe: Recipe) => router.push(`/recipes/${recipe.id}`);
+
     const onSlotClick = async (day: string, label: string) => {
-      if (!selectedRecipe.value) return;
+      if (!selectedRecipe.value) {
+        // Empty slot, nothing selected: offer ideas instead of doing nothing.
+        const slot = slotsForDay(day).find(s => sameLabel(s.label, label));
+        if (slot && !slot.recipes.length && recipes.value.length) {
+          const dayName = weekDays.value.find(d => d.iso === day)?.name || '';
+          ideaTarget.value = { day, dayName, label };
+        }
+        return;
+      }
       const recipe = selectedRecipe.value;
       selectedRecipe.value = null;
       await placeRecipe(recipe, day, label);
@@ -519,6 +585,9 @@ export default defineComponent({
         fetchDropboxStatus(),
         fetchPlan(),
         fetchGroceryLists(),
+        fetchRecipeHistory(userId)
+          .then(h => (history.value = h))
+          .catch(err => console.error('Could not load recipe history', err)),
         fetchRecipes(),
       ]);
       loading.value = false;
@@ -553,6 +622,12 @@ export default defineComponent({
       onDragLeave,
       onDrop,
       onRecipeClick,
+      rankedRecipes,
+      notes,
+      slotIdeas,
+      ideaTarget,
+      pickIdea,
+      openRecipe,
       onSlotClick,
       removeRecipeAt,
       addCustomSlot,

@@ -1,7 +1,7 @@
 from datetime import datetime
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo import UpdateOne
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 from src.models.grocery import Grocery
 from src.models.user import User
 from src.models.grocery_list import GroceryList
@@ -53,6 +53,7 @@ class DBService:
         self.dropbox_credentials_collection = self.db["dropbox_credentials"]
         self.meal_plans_collection = self.db["meal_plans"]
         self.pantry_staples_collection = self.db["pantry_staples"]
+        self.recipe_history_collection = self.db["recipe_history"]
         # Recipes themselves still come from markdown via RecipeFileService;
         # this collection only stores the parse cache so a backend restart
         # doesn't have to re-download every file.
@@ -209,6 +210,28 @@ class DBService:
         await self.pantry_staples_collection.update_one(
             {"user_id": user_id},
             {"$set": {"user_id": user_id, "staples": staples.staples}},
+            upsert=True,
+        )
+
+    # -- Recipe history ------------------------------------------------
+    # Days a recipe was sent to the grocery list outside the planner (the
+    # planner's own days come from meal_plans). One doc per user:
+    # `{user_id, last_used: {recipe_id: "YYYY-MM-DD"}}`.
+
+    async def get_user_recipe_uses(self, user_id: str) -> Dict[str, str]:
+        doc = await self.recipe_history_collection.find_one({"user_id": user_id})
+        return (doc or {}).get("last_used") or {}
+
+    async def record_user_recipe_use(
+        self, user_id: str, recipe_id: str, day: str
+    ) -> None:
+        # ISO dates compare correctly as strings, so $max keeps the latest.
+        await self.recipe_history_collection.update_one(
+            {"user_id": user_id},
+            {
+                "$max": {f"last_used.{recipe_id}": day},
+                "$setOnInsert": {"user_id": user_id},
+            },
             upsert=True,
         )
 
