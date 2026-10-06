@@ -48,6 +48,8 @@
       </div>
     </div>
 
+    <pantry-staples-editor v-if="user?.sub" :user-id="user.sub" />
+
     <div class="row">
       <highlightjs language="json" :code="JSON.stringify(user, null, 2)" />
     </div>
@@ -60,10 +62,11 @@ import { useAuth0 } from '@auth0/auth0-vue';
 import { getApi } from '../services/api';
 import { clearRecipeCache } from '../services/recipes';
 import DropboxFolderPicker from '../components/DropboxFolderPicker.vue';
+import PantryStaplesEditor from '../components/PantryStaplesEditor.vue';
 
 export default defineComponent({
   name: "profile-view",
-  components: { DropboxFolderPicker },
+  components: { DropboxFolderPicker, PantryStaplesEditor },
   setup() {
     const { user, isAuthenticated, isLoading } = useAuth0();
     const api = getApi();

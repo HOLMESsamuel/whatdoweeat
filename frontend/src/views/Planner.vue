@@ -126,6 +126,12 @@ import { defineComponent, ref, computed, onMounted, watch } from 'vue';
 import { useAuth0 } from '@auth0/auth0-vue';
 import { getApi } from '../services/api';
 import { cachedRecipes, loadRecipes } from '../services/recipes';
+import {
+  GroceryListSummary,
+  addRecipeToList,
+  fetchGroceryLists as fetchUserGroceryLists,
+  fetchPantryStaples,
+} from '../services/groceries';
 import RecipeList, { Recipe, RECIPE_DRAG_MIME } from '../components/RecipeList.vue';
 
 // Recipe is re-exported by RecipeList; use it via the import above.
@@ -150,11 +156,6 @@ interface DisplaySlot {
   label: string;
   recipes: MealRecipe[];
   isCustom: boolean;
-}
-
-interface GroceryListSummary {
-  _id: string;
-  name: string;
 }
 
 const BUILTIN_LABELS = ['Lunch', 'Dinner'];
@@ -290,11 +291,7 @@ export default defineComponent({
 
     const fetchGroceryLists = async () => {
       try {
-        const { data } = await api.get(`/user/${userPath()}/grocery-list`);
-        groceryLists.value = (data || []).map((d: any) => ({
-          _id: typeof d._id === 'string' ? d._id : String(d._id),
-          name: d.name,
-        }));
+        groceryLists.value = await fetchUserGroceryLists(userId);
       } catch (err) {
         console.error('Could not fetch grocery lists', err);
         groceryLists.value = [];
@@ -310,26 +307,14 @@ export default defineComponent({
     };
 
     const addIngredientsToFirstList = async (recipe: Recipe) => {
-      if (groceryLists.value.length === 0) return;
-      const listId = groceryLists.value[0]._id;
-      const items = recipe.groceries || [];
-      if (items.length === 0) return;
-      // Sequential to keep server load light and avoid race-condition log
-      // spam in the websocket broadcaster.
-      for (const g of items) {
-        try {
-          await api.post(`/grocery-list/${listId}/grocery`, {
-            id: '',
-            name: g.name,
-            quantity: g.quantity || '',
-            description: recipe.name,
-            type: 'other',
-            color: '',
-          });
-        } catch (err) {
-          console.error('Could not add grocery', g, err);
-        }
+      if (groceryLists.value.length === 0) return { added: [], skipped: [] };
+      let staples: string[] = [];
+      try {
+        staples = await fetchPantryStaples(userId);
+      } catch (err) {
+        console.error('Could not load pantry staples', err);
       }
+      return addRecipeToList(groceryLists.value[0]._id, recipe, staples);
     };
 
     // Best-effort cleanup: for each ingredient in `recipe`, remove ONE
@@ -392,9 +377,10 @@ export default defineComponent({
       }
       slot.recipes.push({ recipe_id: recipe.id, recipe_name: recipe.name });
       await savePlan();
-      await addIngredientsToFirstList(recipe);
+      const { added, skipped } = await addIngredientsToFirstList(recipe);
       flashStatus(
-        `Added "${recipe.name}" to ${label} — ${recipe.groceries?.length || 0} ingredient(s) sent to "${groceryLists.value[0]?.name}".`
+        `Added "${recipe.name}" to ${label} — ${added.length} ingredient(s) sent to "${groceryLists.value[0]?.name}".` +
+          (skipped.length ? ` Skipped: ${skipped.join(', ')}.` : '')
       );
     };
 

@@ -11,7 +11,8 @@ Claude always updates this file when something changes.
 - **Backend**: FastAPI + motor (async MongoDB). Auth0 JWT verified via JWKS
   in `backend/src/services/auth_service.py`.
 - **Persistence**: MongoDB `whatdoweeat`. Collections: `users`,
-  `grocery_lists`, `dropbox_credentials`, `meal_plans`, `recipe_cache`.
+  `grocery_lists`, `dropbox_credentials`, `meal_plans`, `recipe_cache`,
+  `pantry_staples`.
   Recipes themselves are NOT in Mongo — they're parsed from markdown
   files in the user's Dropbox by `RecipeFileService`. `recipe_cache`
   only persists the parse cache so a backend restart doesn't have to
@@ -99,6 +100,11 @@ Claude always updates this file when something changes.
   `RECIPE_DRAG_MIME` exported alongside the `Recipe` type); the
   planner's drop handler reads it back from `event.dataTransfer`. The
   parent owns recipe fetching; RecipeList just renders/filters.
+  With the `long-press` prop it also emits `long-press(recipe)` after a
+  500 ms hold (pointer events, cancelled by >10px movement, drag start,
+  or scroll via `pointercancel`) and swallows the click that ends the
+  press. RecipeBrowser uses it to send the recipe's ingredients to the
+  first grocery list.
 - Frontend recipe fetching goes through `services/recipes.ts`: a
   session-level cache (`cachedRecipes`/`cachedRecipe`) plus
   `loadRecipes(userId)` that dedupes in-flight requests. Pages render the
@@ -117,6 +123,23 @@ Claude always updates this file when something changes.
 - WebSocket URL on the frontend: `${VITE_WS_BACKEND_BASE_URL}/${listId}`.
   The component refetches the whole list on any message rather than
   applying diffs.
+
+## Pantry staples
+
+- Ingredients the user always has (salt, pepper, olive oil…) and that
+  are never sent to a grocery list from a recipe. Per user, collection
+  `pantry_staples` (`{user_id, staples: [str]}`), via
+  `GET/PUT /user/{user_id}/pantry-staples` (`pantry_routes.py`). No doc
+  → `DEFAULT_PANTRY_STAPLES` (`sel`, `poivre`, `huile d'olive`); a saved
+  empty list stays empty. `PantryStaples` trims, collapses whitespace
+  and dedupes case-insensitively. Edited on Profile
+  (`PantryStaplesEditor.vue`).
+- Recipe → grocery list goes through `frontend/src/services/groceries.ts`
+  (`addRecipeToList`), used by both the Recipes page long press and the
+  planner. A staple matches when it appears in the ingredient name as
+  whole words, ignoring case/accents/curly apostrophes (`stapleMatcher`):
+  "sel" skips "fleur de sel" but not "selle d'agneau"; "poivre" doesn't
+  skip "poivron". Staples are fetched per add so edits apply at once.
 
 ## Meal planner
 
@@ -140,8 +163,9 @@ Claude always updates this file when something changes.
 - `db_service._migrate_meal_plan_doc` upgrades any legacy
   `{day, slot, recipe_id, recipe_name}` entries on read by grouping by
   `(day, slot)` into the multi-recipe shape. Pass-through for new docs.
-- Side effect on placement: ingredients of the placed recipe are POSTed
-  to the user's **first** grocery list, with `description = recipe.name`.
+- Side effect on placement: ingredients of the placed recipe, minus
+  pantry staples, are POSTed to the user's **first** grocery list, with
+  `description = recipe.name`.
   Each placement adds ingredients again (even duplicates of the same
   recipe).
 - Side effect on removal: `removeIngredientsFromFirstList` deletes
@@ -186,11 +210,15 @@ Claude always updates this file when something changes.
 - Frontend checks: `npx vue-tsc --noEmit` for types, `npx vite build` for
   a full build. Both fast (<2s typecheck, <2s build). No frontend tests.
 - Backend tests: pytest in `backend/tests/`, run from the repo root
-  (`python -m pytest backend/tests`; imports are `backend.src...`).
-  Coverage: `models_tests/grocery_test.py` and
+  (`python -m pytest backend/tests`) or as CI does (`cd backend &&
+  pytest tests/`). `tests/conftest.py` puts `backend/` on `sys.path` so
+  the app's own `src.*` imports resolve either way. Coverage:
+  `models_tests/grocery_test.py`,
   `services_tests/recipe_file_service_test.py` (cache reuse, listing
-  errors, pagination, path normalization, refresh coalescing). Don't
-  assume a test exists for what you change.
+  errors, pagination, path normalization, refresh coalescing) and
+  `routes_tests/pantry_routes_test.py` (bare FastAPI app with
+  `dependency_overrides` for auth and DB). Don't assume a test exists
+  for what you change.
 
 ## Things that have bitten me
 

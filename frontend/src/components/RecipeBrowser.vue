@@ -39,11 +39,25 @@
         @cancel="pickingFolder = false"
       />
       <p v-if="recipesError" class="connect-error">{{ recipesError }}</p>
+      <p class="press-hint">
+        Tap a recipe to open it, or press and hold to add its ingredients
+        to your grocery list.
+      </p>
       <recipe-list
         :recipes="recipes"
         :loading="loadingRecipes"
+        long-press
         @select="viewRecipe"
+        @long-press="addToGroceryList"
       />
+      <div
+        v-if="toast"
+        class="toast"
+        :class="{ 'toast--error': toast.error }"
+        role="status"
+      >
+        {{ toast.text }}
+      </div>
     </template>
   </div>
 </template>
@@ -60,6 +74,11 @@ import {
 } from '../services/recipes';
 import RecipeList, { Recipe } from './RecipeList.vue';
 import DropboxFolderPicker from './DropboxFolderPicker.vue';
+import {
+  addRecipeToList,
+  fetchGroceryLists,
+  fetchPantryStaples,
+} from '../services/groceries';
 
 interface DropboxStatus {
   connected: boolean;
@@ -82,6 +101,9 @@ export default defineComponent({
     const loadingRecipes = ref(false);
     const recipesError = ref('');
     const pickingFolder = ref(false);
+    const toast = ref<{ text: string; error: boolean } | null>(null);
+    let toastTimer: number | null = null;
+    let adding = false;
 
     const status = ref<DropboxStatus>({ connected: false, loading: true });
     const recipesPath = ref(DEFAULT_PATH);
@@ -159,6 +181,46 @@ export default defineComponent({
       }
     };
 
+    const showToast = (text: string, error = false) => {
+      toast.value = { text, error };
+      if (toastTimer) clearTimeout(toastTimer);
+      toastTimer = window.setTimeout(() => (toast.value = null), 4000);
+    };
+
+    // Fetched per press rather than cached so edits to lists or staples
+    // made elsewhere (Profile, another device) apply straight away.
+    const addToGroceryList = async (recipe: Recipe) => {
+      if (adding || !userId.value) return;
+      adding = true;
+      showToast(`Adding "${recipe.name}"…`);
+      try {
+        const [lists, staples] = await Promise.all([
+          fetchGroceryLists(userId.value),
+          fetchPantryStaples(userId.value),
+        ]);
+        if (!lists.length) {
+          showToast('Create a grocery list first.', true);
+          return;
+        }
+        const { added, skipped } = await addRecipeToList(
+          lists[0]._id,
+          recipe,
+          staples
+        );
+        let text = `Added ${added.length} ingredient(s) from "${recipe.name}" to "${lists[0].name}".`;
+        if (skipped.length) text += ` Skipped: ${skipped.join(', ')}.`;
+        showToast(text);
+      } catch (err: any) {
+        console.error('Could not add recipe to grocery list', err);
+        showToast(
+          apiErrorMessage(err, 'Could not add the ingredients.'),
+          true
+        );
+      } finally {
+        adding = false;
+      }
+    };
+
     const viewRecipe = (recipe: Recipe) => {
       router.push(`/recipes/${recipe.id}`);
     };
@@ -205,6 +267,8 @@ export default defineComponent({
       pickingFolder,
       userId,
       onFolderSaved,
+      toast,
+      addToGroceryList,
       viewRecipe,
       connectDropbox,
     };
@@ -306,6 +370,31 @@ export default defineComponent({
   color: #699051;
   cursor: pointer;
   text-decoration: underline;
+}
+
+.press-hint {
+  color: #777;
+  font-size: 0.85em;
+  margin: 0 0 8px;
+}
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: calc(100vw - 32px);
+  padding: 10px 16px;
+  border-radius: 8px;
+  background-color: #445837;
+  color: white;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  z-index: 1000;
+}
+
+.toast--error {
+  background-color: #b91c1c;
 }
 
 .connect-error {
