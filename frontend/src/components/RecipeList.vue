@@ -1,13 +1,26 @@
 <template>
   <div class="recipe-list-component">
     <div class="filters-section">
+      <div class="category-chips" role="group" aria-label="Kind of recipe">
+        <button
+          v-for="c in categoryOptions"
+          :key="c.value"
+          type="button"
+          class="category-chip"
+          :class="{ 'category-chip--active': category === c.value }"
+          :aria-pressed="category === c.value"
+          @click="category = c.value"
+        >
+          {{ c.label }} ({{ c.count }})
+        </button>
+      </div>
       <input
         v-model="searchQuery"
         :placeholder="searchPlaceholder"
         class="search-input"
       />
       <select v-model="selectedTag" class="filter-select">
-        <option value="">All tags ({{ recipes.length }})</option>
+        <option value="">All tags ({{ inCategory.length }})</option>
         <option
           v-for="tag in availableTags"
           :key="tag.name"
@@ -31,12 +44,24 @@
           'recipe-item--selected': !!selectedId && recipe.id === selectedId,
           'recipe-item--compact': compact,
           'recipe-item--draggable': draggable,
+          'recipe-item--pressing': pressingId === recipe.id,
         }"
         :draggable="draggable"
         @dragstart="onDragStart(recipe, $event)"
-        @click="$emit('select', recipe)"
+        @pointerdown="onPointerDown(recipe, $event)"
+        @pointermove="onPointerMove"
+        @pointerup="cancelPress"
+        @pointerleave="cancelPress"
+        @pointercancel="cancelPress"
+        @contextmenu="onContextMenu"
+        @click="onClick(recipe)"
       >
-        <span class="recipe-name">{{ recipe.name }}</span>
+        <span class="recipe-name-row">
+          <span class="recipe-name">{{ recipe.name }}</span>
+          <span v-if="notes[recipe.id]" class="recipe-note">
+            {{ notes[recipe.id] }}
+          </span>
+        </span>
         <span v-if="recipe.tags && recipe.tags.length" class="recipe-tags">
           <span v-for="tag in recipe.tags" :key="tag" class="recipe-tag">
             {{ tag }}
@@ -48,7 +73,9 @@
 </template>
 
 <script lang="ts">
-import { defineComponent, ref, computed, PropType } from 'vue';
+import { defineComponent, ref, computed, onBeforeUnmount, watch, PropType } from 'vue';
+import { Category, recipeCategory } from '../services/suggestions';
+import { normalizeIngredient } from '../services/groceries';
 
 interface Grocery {
   id: string;
@@ -76,6 +103,10 @@ interface TagBucket {
 // dragging" ref between this component and the planner.
 export const RECIPE_DRAG_MIME = 'application/x-recipe-id';
 
+const LONG_PRESS_MS = 500;
+// A finger drifting further than this is scrolling, not pressing.
+const LONG_PRESS_SLOP_PX = 10;
+
 export default defineComponent({
   name: 'RecipeList',
   props: {
@@ -86,18 +117,55 @@ export default defineComponent({
     draggable: { type: Boolean, default: false },
     searchPlaceholder: {
       type: String,
-      default: 'Search by name or tag...',
+      default: 'Search by name, tag or ingredient...',
     },
     emptyText: { type: String, default: 'No recipes match.' },
+    // Emit `long-press` after holding a recipe; the click that ends the
+    // press is swallowed so it doesn't also `select`.
+    longPress: { type: Boolean, default: false },
+    // Small per-recipe label shown next to the name, e.g. "3 days ago".
+    notes: {
+      type: Object as PropType<Record<string, string>>,
+      default: () => ({}),
+    },
+    defaultCategory: {
+      type: String as PropType<Category | 'all'>,
+      default: 'meal',
+    },
   },
-  emits: ['select'],
-  setup(props) {
+  emits: ['select', 'long-press'],
+  setup(props, { emit }) {
     const searchQuery = ref('');
     const selectedTag = ref('');
+    const category = ref<Category | 'all'>(props.defaultCategory);
+
+    const categories = computed(() => {
+      const out = new Map<string, Category>();
+      for (const r of props.recipes) out.set(r.id, recipeCategory(r));
+      return out;
+    });
+
+    const categoryOptions = computed(() => {
+      const count = (c: Category) =>
+        props.recipes.filter(r => categories.value.get(r.id) === c).length;
+      return [
+        { value: 'meal' as const, label: 'Meals', count: count('meal') },
+        { value: 'sweet' as const, label: 'Sweet & snacks', count: count('sweet') },
+        { value: 'all' as const, label: 'All', count: props.recipes.length },
+      ];
+    });
+
+    watch(category, () => (selectedTag.value = ''));
+
+    const inCategory = computed(() =>
+      category.value === 'all'
+        ? props.recipes
+        : props.recipes.filter(r => categories.value.get(r.id) === category.value)
+    );
 
     const availableTags = computed<TagBucket[]>(() => {
       const counts = new Map<string, number>();
-      for (const r of props.recipes) {
+      for (const r of inCategory.value) {
         for (const tag of r.tags || []) {
           counts.set(tag, (counts.get(tag) || 0) + 1);
         }
@@ -111,21 +179,77 @@ export default defineComponent({
         );
     });
 
+    // Every word of the query must appear in the name, tags or
+    // ingredients ("poulet citron"), ignoring case and accents.
     const filteredRecipes = computed(() => {
-      const q = searchQuery.value.trim().toLowerCase();
+      const words = normalizeIngredient(searchQuery.value)
+        .split(' ')
+        .filter(Boolean);
       const tag = selectedTag.value;
-      return props.recipes.filter(r => {
+      return inCategory.value.filter(r => {
         const matchesTag = !tag || (r.tags || []).includes(tag);
         if (!matchesTag) return false;
-        if (!q) return true;
-        const haystack = [r.name, ...(r.tags || [])]
-          .join(' ')
-          .toLowerCase();
-        return haystack.includes(q);
+        if (!words.length) return true;
+        const haystack = normalizeIngredient(
+          [r.name, ...(r.tags || []), ...(r.groceries || []).map(g => g.name)]
+            .join(' ')
+        );
+        return words.every(w => haystack.includes(w));
       });
     });
 
+    const pressingId = ref('');
+    let pressTimer: number | null = null;
+    let pressStart = { x: 0, y: 0 };
+    let suppressClick = false;
+
+    const cancelPress = () => {
+      if (pressTimer !== null) clearTimeout(pressTimer);
+      pressTimer = null;
+      pressingId.value = '';
+    };
+
+    const onPointerDown = (recipe: Recipe, event: PointerEvent) => {
+      if (!props.longPress || event.button !== 0) return;
+      cancelPress();
+      suppressClick = false;
+      pressStart = { x: event.clientX, y: event.clientY };
+      pressingId.value = recipe.id;
+      pressTimer = window.setTimeout(() => {
+        pressTimer = null;
+        pressingId.value = '';
+        suppressClick = true;
+        navigator.vibrate?.(30);
+        emit('long-press', recipe);
+      }, LONG_PRESS_MS);
+    };
+
+    const onPointerMove = (event: PointerEvent) => {
+      if (pressTimer === null) return;
+      const dx = event.clientX - pressStart.x;
+      const dy = event.clientY - pressStart.y;
+      if (dx * dx + dy * dy > LONG_PRESS_SLOP_PX * LONG_PRESS_SLOP_PX) {
+        cancelPress();
+      }
+    };
+
+    // Mobile browsers open a context menu on long touch.
+    const onContextMenu = (event: Event) => {
+      if (props.longPress) event.preventDefault();
+    };
+
+    const onClick = (recipe: Recipe) => {
+      if (suppressClick) {
+        suppressClick = false;
+        return;
+      }
+      emit('select', recipe);
+    };
+
+    onBeforeUnmount(cancelPress);
+
     const onDragStart = (recipe: Recipe, event: DragEvent) => {
+      cancelPress();
       if (!event.dataTransfer) return;
       event.dataTransfer.effectAllowed = 'copy';
       event.dataTransfer.setData(RECIPE_DRAG_MIME, recipe.id);
@@ -135,9 +259,18 @@ export default defineComponent({
     return {
       searchQuery,
       selectedTag,
+      category,
+      categoryOptions,
+      inCategory,
       availableTags,
       filteredRecipes,
       onDragStart,
+      pressingId,
+      onPointerDown,
+      onPointerMove,
+      cancelPress,
+      onContextMenu,
+      onClick,
     };
   },
 });
@@ -154,6 +287,41 @@ export default defineComponent({
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.category-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.category-chip {
+  border: 1px solid #699051;
+  background-color: white;
+  color: #445837;
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 0.85em;
+  cursor: pointer;
+}
+
+.category-chip--active {
+  background-color: #699051;
+  color: white;
+}
+
+.recipe-name-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.recipe-note {
+  flex-shrink: 0;
+  font-size: 0.75em;
+  opacity: 0.85;
+  white-space: nowrap;
 }
 
 .search-input,
@@ -198,6 +366,15 @@ export default defineComponent({
   cursor: pointer;
   transition: background-color 0.2s, transform 0.05s;
   user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.recipe-item--pressing {
+  background-color: #445837;
+  transform: scale(0.97);
+  transition: background-color 0.5s, transform 0.5s;
 }
 
 .recipe-item--compact {
