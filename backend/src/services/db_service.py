@@ -7,6 +7,7 @@ from src.models.user import User
 from src.models.grocery_list import GroceryList
 from src.models.dropbox_credential import DropboxCredential
 from src.models.meal_plan import MealPlan
+from src.models.pantry import PantryStaples
 import logging
 from src.models.pydantic_object_id import PydanticObjectId
 from bson import ObjectId
@@ -51,6 +52,7 @@ class DBService:
         self.grocery_list_collection = self.db["grocery_lists"]
         self.dropbox_credentials_collection = self.db["dropbox_credentials"]
         self.meal_plans_collection = self.db["meal_plans"]
+        self.pantry_staples_collection = self.db["pantry_staples"]
         # Recipes themselves still come from markdown via RecipeFileService;
         # this collection only stores the parse cache so a backend restart
         # doesn't have to re-download every file.
@@ -190,6 +192,23 @@ class DBService:
         await self.meal_plans_collection.update_one(
             {"user_id": user_id},
             {"$set": {"user_id": user_id, "meals": [m.dict() for m in plan.meals]}},
+            upsert=True,
+        )
+
+    # -- Pantry staples -------------------------------------------------
+
+    async def get_user_pantry_staples(self, user_id: str) -> PantryStaples:
+        doc = await self.pantry_staples_collection.find_one({"user_id": user_id})
+        if doc is None:
+            return PantryStaples()
+        return PantryStaples(staples=doc.get("staples") or [])
+
+    async def set_user_pantry_staples(
+        self, user_id: str, staples: PantryStaples
+    ) -> None:
+        await self.pantry_staples_collection.update_one(
+            {"user_id": user_id},
+            {"$set": {"user_id": user_id, "staples": staples.staples}},
             upsert=True,
         )
 

@@ -31,10 +31,17 @@
           'recipe-item--selected': !!selectedId && recipe.id === selectedId,
           'recipe-item--compact': compact,
           'recipe-item--draggable': draggable,
+          'recipe-item--pressing': pressingId === recipe.id,
         }"
         :draggable="draggable"
         @dragstart="onDragStart(recipe, $event)"
-        @click="$emit('select', recipe)"
+        @pointerdown="onPointerDown(recipe, $event)"
+        @pointermove="onPointerMove"
+        @pointerup="cancelPress"
+        @pointerleave="cancelPress"
+        @pointercancel="cancelPress"
+        @contextmenu="onContextMenu"
+        @click="onClick(recipe)"
       >
         <span class="recipe-name">{{ recipe.name }}</span>
         <span v-if="recipe.tags && recipe.tags.length" class="recipe-tags">
@@ -48,7 +55,7 @@
 </template>
 
 <script lang="ts">
-import { defineComponent, ref, computed, PropType } from 'vue';
+import { defineComponent, ref, computed, onBeforeUnmount, PropType } from 'vue';
 
 interface Grocery {
   id: string;
@@ -76,6 +83,10 @@ interface TagBucket {
 // dragging" ref between this component and the planner.
 export const RECIPE_DRAG_MIME = 'application/x-recipe-id';
 
+const LONG_PRESS_MS = 500;
+// A finger drifting further than this is scrolling, not pressing.
+const LONG_PRESS_SLOP_PX = 10;
+
 export default defineComponent({
   name: 'RecipeList',
   props: {
@@ -89,9 +100,12 @@ export default defineComponent({
       default: 'Search by name or tag...',
     },
     emptyText: { type: String, default: 'No recipes match.' },
+    // Emit `long-press` after holding a recipe; the click that ends the
+    // press is swallowed so it doesn't also `select`.
+    longPress: { type: Boolean, default: false },
   },
-  emits: ['select'],
-  setup(props) {
+  emits: ['select', 'long-press'],
+  setup(props, { emit }) {
     const searchQuery = ref('');
     const selectedTag = ref('');
 
@@ -125,7 +139,58 @@ export default defineComponent({
       });
     });
 
+    const pressingId = ref('');
+    let pressTimer: number | null = null;
+    let pressStart = { x: 0, y: 0 };
+    let suppressClick = false;
+
+    const cancelPress = () => {
+      if (pressTimer !== null) clearTimeout(pressTimer);
+      pressTimer = null;
+      pressingId.value = '';
+    };
+
+    const onPointerDown = (recipe: Recipe, event: PointerEvent) => {
+      if (!props.longPress || event.button !== 0) return;
+      cancelPress();
+      suppressClick = false;
+      pressStart = { x: event.clientX, y: event.clientY };
+      pressingId.value = recipe.id;
+      pressTimer = window.setTimeout(() => {
+        pressTimer = null;
+        pressingId.value = '';
+        suppressClick = true;
+        navigator.vibrate?.(30);
+        emit('long-press', recipe);
+      }, LONG_PRESS_MS);
+    };
+
+    const onPointerMove = (event: PointerEvent) => {
+      if (pressTimer === null) return;
+      const dx = event.clientX - pressStart.x;
+      const dy = event.clientY - pressStart.y;
+      if (dx * dx + dy * dy > LONG_PRESS_SLOP_PX * LONG_PRESS_SLOP_PX) {
+        cancelPress();
+      }
+    };
+
+    // Mobile browsers open a context menu on long touch.
+    const onContextMenu = (event: Event) => {
+      if (props.longPress) event.preventDefault();
+    };
+
+    const onClick = (recipe: Recipe) => {
+      if (suppressClick) {
+        suppressClick = false;
+        return;
+      }
+      emit('select', recipe);
+    };
+
+    onBeforeUnmount(cancelPress);
+
     const onDragStart = (recipe: Recipe, event: DragEvent) => {
+      cancelPress();
       if (!event.dataTransfer) return;
       event.dataTransfer.effectAllowed = 'copy';
       event.dataTransfer.setData(RECIPE_DRAG_MIME, recipe.id);
@@ -138,6 +203,12 @@ export default defineComponent({
       availableTags,
       filteredRecipes,
       onDragStart,
+      pressingId,
+      onPointerDown,
+      onPointerMove,
+      cancelPress,
+      onContextMenu,
+      onClick,
     };
   },
 });
@@ -198,6 +269,15 @@ export default defineComponent({
   cursor: pointer;
   transition: background-color 0.2s, transform 0.05s;
   user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.recipe-item--pressing {
+  background-color: #445837;
+  transform: scale(0.97);
+  transition: background-color 0.5s, transform 0.5s;
 }
 
 .recipe-item--compact {
