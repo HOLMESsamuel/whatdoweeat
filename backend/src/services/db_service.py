@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo import UpdateOne
 from typing import Dict, List, Optional, Tuple
@@ -44,6 +44,16 @@ def _migrate_meal_plan_doc(doc: dict) -> dict:
     return doc
 
 
+def _utc(value: datetime) -> datetime:
+    """Mongo returns naive datetimes (UTC); make them comparable."""
+    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+
+# How long removed grocery items stay restorable, and how many are kept.
+REMOVED_TTL = timedelta(hours=1)
+REMOVED_MAX = 100
+
+
 class DBService:
     def __init__(self, uri: str, dbname: str):
         self.client = AsyncIOMotorClient(uri)
@@ -70,6 +80,11 @@ class DBService:
         
         if grocery_list:
             logging.info(f"Grocery list found: {grocery_list}")
+            cutoff = _utc(datetime.now(timezone.utc) - REMOVED_TTL)
+            grocery_list["removed"] = [
+                r for r in grocery_list.get("removed") or []
+                if _utc(r["removed_at"]) >= cutoff
+            ]
             return GroceryList(**grocery_list)
         
         logging.warning(f"No grocery list found with _id: {list_id}")
@@ -104,11 +119,54 @@ class DBService:
             {"$push": {"groceries": grocery_dict}}
         )
 
-    async def delete_grocery_from_list(self, list_id: PydanticObjectId, grocery_id: str):
+    async def delete_grocery_from_list(self, list_id: PydanticObjectId, grocery_id: str) -> bool:
+        """Move the item to `removed` (restorable for REMOVED_TTL) rather
+        than dropping it, then prune expired removals."""
+        doc = await self.grocery_list_collection.find_one({"_id": list_id})
+        item = next(
+            (g for g in (doc or {}).get("groceries", []) if g.get("id") == grocery_id),
+            None,
+        )
+        if item is None:
+            return False
+        now = datetime.now(timezone.utc)
+        await self.grocery_list_collection.update_one(
+            {"_id": list_id, "groceries.id": grocery_id},
+            {
+                "$pull": {"groceries": {"id": grocery_id}},
+                "$push": {
+                    "removed": {
+                        "$each": [{**item, "removed_at": now}],
+                        "$slice": -REMOVED_MAX,
+                    }
+                },
+            },
+        )
         await self.grocery_list_collection.update_one(
             {"_id": list_id},
-            {"$pull": {"groceries": {"id": grocery_id}}}
+            {"$pull": {"removed": {"removed_at": {"$lt": now - REMOVED_TTL}}}},
         )
+        return True
+
+    async def restore_grocery_in_list(self, list_id: PydanticObjectId, grocery_id: str) -> bool:
+        doc = await self.grocery_list_collection.find_one({"_id": list_id})
+        item = next(
+            (r for r in (doc or {}).get("removed", []) if r.get("id") == grocery_id),
+            None,
+        )
+        if item is None:
+            return False
+        restored = {k: v for k, v in item.items() if k != "removed_at"}
+        # Filtering on removed.id makes a double restore (two devices,
+        # double tap) a no-op instead of duplicating the item.
+        result = await self.grocery_list_collection.update_one(
+            {"_id": list_id, "removed.id": grocery_id},
+            {
+                "$pull": {"removed": {"id": grocery_id}},
+                "$push": {"groceries": restored},
+            },
+        )
+        return result.modified_count > 0
 
     async def update_grocery_in_list(self, list_id: PydanticObjectId, grocery_id: str, grocery: Grocery):
         await self.grocery_list_collection.update_one(

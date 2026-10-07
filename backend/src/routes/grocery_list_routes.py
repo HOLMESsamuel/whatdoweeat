@@ -73,6 +73,21 @@ async def delete_grocery(
     await manager.broadcast(f"Grocery item deleted: {id}", str(list_id))
     return {"message": "Grocery item deleted"}
 
+@router.post("/grocery-list/{list_id}/grocery/{id}/restore")
+async def restore_grocery(
+    list_id: PydanticObjectId,
+    id: str,
+    response: Response,
+    user: CurrentUser = Depends(get_current_user),
+    db: DBService = Depends(get_db),
+):
+    if not await db.restore_grocery_in_list(list_id, id):
+        # Already restored, expired, or never removed.
+        response.status_code = status.HTTP_204_NO_CONTENT
+        return None
+    await manager.broadcast(f"Grocery item restored: {id}", str(list_id))
+    return {"message": "Grocery item restored"}
+
 @router.put("/grocery-list/{list_id}/grocery/{id}")
 async def update_grocery(
     list_id: PydanticObjectId,

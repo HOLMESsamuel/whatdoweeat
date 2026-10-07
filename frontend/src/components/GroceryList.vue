@@ -42,7 +42,7 @@
         <div class="to-buy-list">
           <div v-for="item in items" :key="item.id" class="item-card">
             <button 
-              @click="removeItem(item.id)"
+              @click="onItemClick(item)"
               @touchstart="startTouch(item)"
               @touchend="endTouch"
               @touchcancel="endTouch"
@@ -59,6 +59,30 @@
         </div>
       </div>
     </div>
+    <div v-if="recentlyRemoved.length" class="removed-section">
+      <button
+        class="removed-toggle"
+        :aria-expanded="showRemoved"
+        @click="showRemoved = !showRemoved"
+      >
+        Recently removed ({{ recentlyRemoved.length }})
+        <span class="removed-caret">{{ showRemoved ? '▴' : '▾' }}</span>
+      </button>
+      <ul v-if="showRemoved" class="removed-list">
+        <li v-for="item in recentlyRemoved" :key="item.id" class="removed-item">
+          <span class="removed-name">
+            {{ item.name }}<span v-if="item.quantity"> ({{ item.quantity }})</span>
+            <small v-if="item.description">{{ item.description }}</small>
+          </span>
+          <span class="removed-ago">{{ ago(item.removed_at) }}</span>
+          <button class="restore-btn" @click="restoreItem(item)">↺ Restore</button>
+        </li>
+      </ul>
+    </div>
+    <div v-if="undo" class="undo-bar" role="status">
+      <span>Removed {{ undo.name }}</span>
+      <button class="undo-btn" @click="restoreItem(undo)">Undo</button>
+    </div>
     <edit-item-modal
       :show="showEditModal"
       :item="selectedItem"
@@ -69,7 +93,7 @@
 </template>
 
 <script lang="ts">
-import { defineComponent, ref, onMounted, computed } from 'vue';
+import { defineComponent, ref, onMounted, onBeforeUnmount, computed } from 'vue';
 import { WebSocketService } from '../services/websocket';
 import { useAuth0 } from '@auth0/auth0-vue';
 import { useRoute } from 'vue-router';
@@ -78,7 +102,8 @@ import { getApi } from '../services/api';
 
 interface GroceryList {
   name: string,
-  groceries: GroceryItem[]
+  groceries: GroceryItem[],
+  removed?: RemovedItem[]
 }
 
 interface GroceryItem {
@@ -89,6 +114,14 @@ interface GroceryItem {
   type?: string;
   color?: string;
 }
+
+interface RemovedItem extends GroceryItem {
+  removed_at: string;
+}
+
+// Matches REMOVED_TTL in backend/src/services/db_service.py.
+const REMOVED_TTL_MS = 60 * 60 * 1000;
+const UNDO_MS = 6000;
 
 export default defineComponent({
   components: {
@@ -120,7 +153,32 @@ export default defineComponent({
       color: 'purple'
     });
     let touchTimer: number | null = null;
+    // Set when a long press opened the edit modal, so the click that ends
+    // the press doesn't also remove the item.
+    let suppressClick = false;
     const colors = ['green', 'purple', 'orange'];
+    const showRemoved = ref(false);
+    const undo = ref<GroceryItem | null>(null);
+    let undoTimer: number | null = null;
+    // Ticks so "x min ago" labels and expiry stay current.
+    const now = ref(Date.now());
+    const clock = window.setInterval(() => (now.value = Date.now()), 30_000);
+    onBeforeUnmount(() => {
+      clearInterval(clock);
+      if (undoTimer) clearTimeout(undoTimer);
+    });
+
+    const recentlyRemoved = computed(() =>
+      (groceryList.value.removed || [])
+        .filter(r => now.value - Date.parse(r.removed_at) < REMOVED_TTL_MS)
+        .slice()
+        .reverse()
+    );
+
+    const ago = (iso: string) => {
+      const minutes = Math.floor((now.value - Date.parse(iso)) / 60_000);
+      return minutes < 1 ? 'just now' : `${minutes} min ago`;
+    };
 
     const groupedItems = computed(() => {
       const groups: { [key: string]: GroceryItem[] } = {};
@@ -152,14 +210,46 @@ export default defineComponent({
 
     const removeItem = async (id: string) => {
       const index = groceryList.value.groceries.findIndex(item => item.id === id);
-        if (index !== -1) {
-          groceryList.value.groceries.splice(index, 1);
-        }
+      if (index !== -1) {
+        const [item] = groceryList.value.groceries.splice(index, 1);
+        groceryList.value.removed = [
+          ...(groceryList.value.removed || []),
+          { ...item, removed_at: new Date().toISOString() },
+        ];
+        undo.value = item;
+        if (undoTimer) clearTimeout(undoTimer);
+        undoTimer = window.setTimeout(() => (undo.value = null), UNDO_MS);
+      }
       try {
         await api.delete(`/grocery-list/${listId}/grocery/${id}`);
       } catch (error) {
         console.error('Error removing item:', error);
       }
+    };
+
+    const restoreItem = async (item: GroceryItem) => {
+      if (undo.value?.id === item.id) undo.value = null;
+      groceryList.value.removed = (groceryList.value.removed || []).filter(
+        r => r.id !== item.id
+      );
+      if (!groceryList.value.groceries.some(g => g.id === item.id)) {
+        const { removed_at, ...restored } = item as RemovedItem;
+        groceryList.value.groceries.push(restored);
+      }
+      try {
+        await api.post(`/grocery-list/${listId}/grocery/${item.id}/restore`);
+      } catch (error) {
+        console.error('Error restoring item:', error);
+        fetchList();
+      }
+    };
+
+    const onItemClick = (item: GroceryItem) => {
+      if (suppressClick) {
+        suppressClick = false;
+        return;
+      }
+      removeItem(item.id);
     };
 
     const connectSocket = () => {
@@ -178,7 +268,9 @@ export default defineComponent({
     }
 
     const startTouch = (item: GroceryItem) => {
+      suppressClick = false;
       touchTimer = window.setTimeout(() => {
+        suppressClick = true;
         selectedItem.value = item;
         showEditModal.value = true;
       }, 500);
@@ -226,6 +318,12 @@ export default defineComponent({
       newItem,
       addItem,
       removeItem,
+      restoreItem,
+      onItemClick,
+      recentlyRemoved,
+      showRemoved,
+      undo,
+      ago,
       logout,
       user,
       isAuthenticated,
@@ -386,6 +484,106 @@ h1 {
   display: flex;
   flex-direction: column;
   gap: 20px;
+}
+
+.removed-section {
+  margin-top: 20px;
+}
+
+.removed-toggle {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background-color: #445837;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 12px 15px;
+  font-size: 1em;
+  cursor: pointer;
+}
+
+.removed-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.removed-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background-color: rgba(68, 88, 55, 0.6);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+.removed-name {
+  flex: 1;
+  min-width: 0;
+  text-decoration: line-through;
+  opacity: 0.85;
+  overflow-wrap: anywhere;
+}
+
+.removed-name small {
+  display: block;
+  text-decoration: none;
+  opacity: 0.8;
+}
+
+.removed-ago {
+  font-size: 0.8em;
+  opacity: 0.75;
+  white-space: nowrap;
+}
+
+.restore-btn {
+  background-color: white;
+  color: #445837;
+  border: none;
+  border-radius: 4px;
+  padding: 6px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.undo-bar {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  max-width: calc(100vw - 32px);
+  box-sizing: border-box;
+  padding: 10px 12px 10px 16px;
+  border-radius: 8px;
+  background-color: #2f3d26;
+  color: white;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  z-index: 1000;
+}
+
+.undo-bar span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.undo-btn {
+  background: none;
+  border: none;
+  color: #FF843C;
+  font-weight: 700;
+  text-transform: uppercase;
+  cursor: pointer;
+  padding: 4px 8px;
 }
 
 .grocery-section {

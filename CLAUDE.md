@@ -123,6 +123,20 @@ Claude always updates this file when something changes.
 - WebSocket URL on the frontend: `${VITE_WS_BACKEND_BASE_URL}/${listId}`.
   The component refetches the whole list on any message rather than
   applying diffs.
+- Removing an item doesn't drop it: `delete_grocery_from_list` moves it
+  into the list doc's `removed` array with `removed_at` (UTC), capped at
+  `REMOVED_MAX` (100) and pruned past `REMOVED_TTL` (1 h) on each
+  delete; `get_grocery_list` also hides expired ones.
+  `POST /grocery-list/{id}/grocery/{gid}/restore` moves it back with the
+  same id (204 if it's no longer restorable; filtering on `removed.id`
+  makes a double restore a no-op). `RemovedGrocery` forces a UTC tzinfo
+  because Mongo returns naive datetimes and the JSON would otherwise
+  have no offset. The UI shows an Undo bar for 6 s after each removal
+  and a collapsible "Recently removed" section (frontend
+  `REMOVED_TTL_MS` must match the backend TTL).
+- Grocery items: tap removes, long press (500 ms, `startTouch`) opens
+  the edit modal. `suppressClick` swallows the click that ends a long
+  press — without it some browsers removed the item being edited.
 
 ## Pantry staples
 
@@ -249,7 +263,11 @@ Claude always updates this file when something changes.
   the app's own `src.*` imports resolve either way. Coverage:
   `models_tests/grocery_test.py`,
   `services_tests/recipe_file_service_test.py` (cache reuse, listing
-  errors, pagination, path normalization, refresh coalescing) and
+  errors, pagination, path normalization, refresh coalescing),
+  `services_tests/grocery_removal_test.py` (real `DBService` grocery
+  methods against `mongomock-motor`, an in-memory Mongo fake listed in
+  requirements.txt — no real mongod is available in CI or the cloud
+  sandbox) and
   `routes_tests/pantry_routes_test.py` and
   `routes_tests/recipe_history_routes_test.py` (bare FastAPI app with
   `dependency_overrides` for auth and DB). Don't assume a test exists
