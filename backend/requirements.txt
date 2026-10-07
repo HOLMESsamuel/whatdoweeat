@@ -49,3 +49,4 @@ lingua-language-detector==2.0.2
 dropbox==12.0.2
 cryptography==42.0.5
 python-jose[cryptography]==3.3.0
+mongomock-motor==0.0.36
